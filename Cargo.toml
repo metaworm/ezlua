@@ -1,0 +1,46 @@
+[package]
+name = "ezlua"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["metaworm <metaworm@outlook.com>"]
+description = "Ergonomic and Zero-cost rusts bindings to Lua5.4"
+homepage = "https://crates.io/crates/ezlua"
+documentation = "https://docs.rs/ezlua"
+keywords = ["lua", "scripting", "nostd"]
+categories = ["api-bindings", "no-std"]
+
+[features]
+default = ['std', 'vendored', 'log']
+vendored = ['lua-src']
+thread = ['std', 'parking_lot']
+json = ['serde_json']
+std = ['bitflags']
+unsafe_send_sync = []
+async = ['unsafe_send_sync']
+
+[dependencies]
+glob = '0.3'
+extend = "1.1"
+derive_more = '0.99'
+serde_bytes = '0.11'
+serde-transcode = '1'
+cstr_core = '0.2'
+log = {version = '0.4', optional = true}
+regex = {version = '1.5', optional = true}
+bitflags = {version = '2', optional = true}
+parking_lot = {version = '0.12', optional = true}
+serde_json = {version = "1", optional = true}
+serde = {version = '1.0', default-features = false, features = ['rc', 'derive']}
+
+[dev-dependencies]
+tokio = {version = '1.4', features = ["net", "time", "macros", "rt"]}
+ezlua = {path = ".", features = ['vendored', 'thread', 'async']}
+mlua = {version = '0.8', features = ['lua54', 'vendored']}
+
+[build-dependencies]
+cc = '1'
+lua-src = { version = "544", optional = true }
+
+[patch.crates-io]
+lua-src = { git = "https://github.com/metaworm/lua-src-rs" }
