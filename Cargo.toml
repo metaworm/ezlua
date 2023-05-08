@@ -4,10 +4,11 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 authors = ["metaworm <metaworm@outlook.com>"]
-description = "Ergonomic and Zero-cost rusts bindings to Lua5.4"
+description = "Ergonomic, efficient and Zero-cost rust bindings to Lua5.4"
 homepage = "https://crates.io/crates/ezlua"
 documentation = "https://docs.rs/ezlua"
-keywords = ["lua", "scripting", "nostd"]
+repository = "https://github.com/metaworm/ezlua"
+keywords = ["lua", "scripting", "nostd", "async"]
 categories = ["api-bindings", "no-std"]
 
 [features]
