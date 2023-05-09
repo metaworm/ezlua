@@ -115,16 +115,14 @@ impl ToLua for Value<'_> {
 
 impl ToLua for ValRef<'_> {
     const __PUSH: Option<fn(Self, &State) -> Result<()>> = Some(|this, s: &State| {
-        assert_eq!(this.state.raw_state(), s.raw_state());
-        s.push_value(this.index);
+        s.pushval(this);
         Ok(())
     });
 }
 
 impl ToLua for &ValRef<'_> {
     const __PUSH: Option<fn(Self, &State) -> Result<()>> = Some(|this, s: &State| {
-        assert_eq!(this.state.raw_state(), s.raw_state());
-        s.push_value(this.index);
+        s.pushvalref(this);
         Ok(())
     });
 }
@@ -676,6 +674,7 @@ impl State {
     ) -> Result<R> {
         let guard = self.stack_guard();
 
+        self.check_stack(args.value_count().unwrap_or(10) as i32 + 2)?;
         self.push_fn(Some(Self::traceback_c));
         self.push_value(ifunc);
         self.statuscode_to_error(unsafe {

@@ -3,6 +3,7 @@ use crate::{
     error::{Error, Result},
     ffi::*,
     luaapi::{ThreadStatus, Type},
+    marker::RegVal,
     str::*,
     value::{ValRef, Value},
 };
@@ -39,6 +40,14 @@ impl State {
     }
 
     #[inline(always)]
+    pub fn registry_value<V: ToLua>(&self, val: V) -> Result<RegVal> {
+        self.registry().reference(val).map(|r| RegVal {
+            reference: r,
+            inner: self.lua_inner(),
+        })
+    }
+
+    #[inline(always)]
     pub(crate) fn stack_guard(&self) -> StackGuard {
         StackGuard::from(self)
     }
@@ -67,6 +76,8 @@ impl<'a> From<&'a State> for StackGuard<'a> {
 pub mod unsafe_impl {
     #[cfg(feature = "std")]
     use std::path::Path;
+
+    use alloc::string::String;
 
     use super::*;
     use crate::luaapi::UnsafeLuaApi;
@@ -180,6 +191,7 @@ pub mod unsafe_impl {
 
         #[inline(always)]
         pub fn new_val<V: ToLua>(&self, val: V) -> Result<ValRef> {
+            self.check_stack(1)?;
             self.push(val)?;
             Ok(self.top_val())
         }
@@ -208,9 +220,14 @@ pub mod unsafe_impl {
             Ok(self.top_val())
         }
 
-        /// Create function from script string
-        #[inline]
+        /// Create function from script string or bytecode
+        #[inline(always)]
         pub fn new_function<S: AsRef<[u8]>>(&self, s: S, name: Option<&str>) -> Result<ValRef> {
+            self.load(s, name)
+        }
+
+        /// Load script string or bytecode
+        pub fn load<S: AsRef<[u8]>>(&self, s: S, name: Option<&str>) -> Result<ValRef> {
             let guard = self.stack_guard();
             self.statuscode_to_error(self.load_buffer(s, name))?;
             core::mem::forget(guard);
@@ -364,6 +381,21 @@ pub mod unsafe_impl {
             result
         }
 
+        pub fn backtrace(&self, co: Option<&State>, msg: &str, level: i32) -> String {
+            self.traceback(
+                co.map(|s| s.as_ptr()).unwrap_or(core::ptr::null_mut()),
+                CString::new(msg).unwrap().as_c_str(),
+                level,
+            );
+            let result = self.to_str_lossy(-1).unwrap_or_default().into_owned();
+            self.pop(1);
+            result
+        }
+
+        pub fn stack(&self, n: i32) -> Option<lua_Debug> {
+            self.get_stack(n)
+        }
+
         #[inline(always)]
         pub unsafe fn error_string(self, e: impl AsRef<str>) -> ! {
             self.push_string(e.as_ref());
@@ -431,7 +463,19 @@ pub mod unsafe_impl {
                 | Value::Table(r)
                 | Value::Function(r)
                 | Value::Userdata(r)
-                | Value::Thread(r) => r.ensure_top(),
+                | Value::Thread(r) => self.pushval(r),
+            }
+        }
+
+        pub(crate) fn pushval(&self, val: ValRef) {
+            self.pushvalref(&val)
+        }
+
+        pub(crate) fn pushvalref(&self, val: &ValRef) {
+            let state = val.state.raw_state();
+            val.state.push_value(val.index);
+            if state != self.raw_state() {
+                unsafe { crate::ffi::lua_xmove(state, self.raw_state(), 1) }
             }
         }
 

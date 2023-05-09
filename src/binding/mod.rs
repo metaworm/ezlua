@@ -4,6 +4,8 @@ use crate::{error::Result, state::State};
 
 #[cfg(feature = "json")]
 pub mod json;
+#[cfg(feature = "log")]
+pub mod log;
 #[cfg(feature = "regex")]
 pub mod regex;
 #[cfg(feature = "std")]

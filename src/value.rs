@@ -8,6 +8,7 @@ use crate::{
     error::*,
     ffi::{lua_Integer, lua_Number},
     luaapi::{Reference, Type, UnsafeLuaApi},
+    marker::RegVal,
     state::*,
     str::CStr,
     userdata::UserData,
@@ -189,6 +190,24 @@ impl<'a> ValRef<'a> {
         self.state.raw_len(self.index)
     }
 
+    #[inline(always)]
+    pub fn raw_push<V: ToLua>(&self, val: V) -> Result<()> {
+        self.raw_seti((self.raw_len() + 1) as i64, val)
+    }
+
+    #[inline(always)]
+    pub fn raw_insert<V: ToLua>(&self, i: usize, val: V) -> Result<()> {
+        self.raw_move_vals(i)?;
+        self.raw_seti(i as i64, val)
+    }
+
+    pub fn raw_move_vals(&self, i: usize) -> Result<()> {
+        for i in i..=self.raw_len() {
+            self.raw_seti((i + 1) as i64, self.raw_get(i as i64)?)?;
+        }
+        Ok(())
+    }
+
     #[inline]
     pub fn len(&self) -> ValRef<'a> {
         self.state.len(self.index);
@@ -269,6 +288,13 @@ impl<'a> ValRef<'a> {
         })
     }
 
+    pub fn set_metatable(&self, t: ValRef) -> Result<()> {
+        t.check_type(Type::Table)?;
+        self.state.pushval(t);
+        self.state.set_metatable(self.index);
+        Ok(())
+    }
+
     #[inline(always)]
     pub fn call_metamethod<T: ToLuaMulti, R: FromLuaMulti<'a>>(
         &self,
@@ -305,6 +331,11 @@ impl<'a> ValRef<'a> {
             Type::Userdata => Value::Userdata(self),
             Type::Thread => Value::Thread(self),
         })
+    }
+
+    pub fn into_registry_value(self) -> Result<RegVal> {
+        let s = self.state;
+        s.registry_value(self)
     }
 
     pub fn into_value(self) -> Value<'a> {

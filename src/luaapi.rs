@@ -1449,3 +1449,41 @@ bitflags::bitflags! {
         const MASKCOUNT = LUA_MASKCOUNT
     }
 }
+
+impl lua_Debug {
+    pub fn source(&self) -> Option<Cow<str>> {
+        if self.source.is_null() {
+            None
+        } else {
+            Some(unsafe { CStr::from_ptr(self.source).to_string_lossy() })
+        }
+    }
+
+    pub fn short_src(&self) -> Cow<str> {
+        unsafe { CStr::from_ptr(self.short_src.as_ptr()).to_string_lossy() }
+    }
+
+    pub fn name(&self) -> Option<Cow<str>> {
+        if self.name.is_null() {
+            None
+        } else {
+            Some(unsafe { CStr::from_ptr(self.name).to_string_lossy() })
+        }
+    }
+
+    pub fn what(&self) -> Option<Cow<str>> {
+        if self.what.is_null() {
+            None
+        } else {
+            Some(unsafe { CStr::from_ptr(self.what).to_string_lossy() })
+        }
+    }
+
+    pub fn namewhat(&self) -> Option<Cow<str>> {
+        if self.namewhat.is_null() {
+            None
+        } else {
+            Some(unsafe { CStr::from_ptr(self.namewhat).to_string_lossy() })
+        }
+    }
+}

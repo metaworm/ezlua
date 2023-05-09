@@ -44,6 +44,8 @@ impl ValRef<'_> {
         let guard = self.state.stack_guard();
 
         self.check_type(Type::Function)?;
+        self.state
+            .check_stack(args.value_count().unwrap_or(10) as i32 + 2)?;
         self.state.push_value(self.index);
         let count = R::COUNT as i32;
         self.state
@@ -89,8 +91,10 @@ impl Coroutine {
         let guard = self.stack_guard();
 
         self.check_type(1, Type::Function)?;
-        self.push_value(1);
+        self.state
+            .check_stack(args.value_count().unwrap_or(10) as i32 + 2)?;
 
+        self.push_value(1);
         let count = R::COUNT as i32;
         self.raw_call_async(state, guard.top(), self.push_multi(args)? as _, count)
             .await?;

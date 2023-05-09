@@ -407,3 +407,16 @@ fn convert_closure() {
     )
     .unwrap();
 }
+
+#[test]
+fn stack() {
+    let lua = Lua::with_open_libs();
+    let args = (0..100)
+        .map(|i| lua.new_val(i))
+        .flatten()
+        .collect::<Vec<_>>();
+    lua.load("print(...)", None)
+        .unwrap()
+        .pcall_void(MultiRet(args))
+        .unwrap();
+}

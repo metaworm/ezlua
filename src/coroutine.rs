@@ -80,6 +80,8 @@ impl Coroutine {
 
     pub fn resume<'a, A: ToLuaMulti, R: FromLuaMulti<'a>>(&'a mut self, args: A) -> Result<R> {
         self.pop(self.nres);
+        self.state
+            .check_stack(args.value_count().unwrap_or(10) as i32)?;
         match self
             .state
             .resume(null_mut(), self.push_multi(args)? as _, &mut self.nres)

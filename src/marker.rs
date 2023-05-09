@@ -4,12 +4,15 @@ use alloc::boxed::Box;
 use alloc::string::ToString;
 use core::mem;
 
-use crate::convert::{FromLua, Index, ToLua, ToLuaMulti};
 use crate::error::Result;
 use crate::ffi::{self, lua_State, CFunction};
-use crate::luaapi::UnsafeLuaApi;
+use crate::luaapi::{Reference, UnsafeLuaApi};
 use crate::prelude::{LuaResult, LuaType};
 use crate::state::State;
+use crate::{
+    convert::{FromLua, Index, ToLua, ToLuaMulti},
+    prelude::ArcLuaInner,
+};
 
 /// Mark an error result return as `nil, error` rather than raising it
 pub struct NilError<T: ToLuaMulti>(pub T);
@@ -30,6 +33,13 @@ impl<T: ToLuaMulti> ToLuaMulti for NilError<T> {
 /// Represents an argument passed from lua on the stack
 #[derive(Clone, Copy, Debug)]
 pub struct ArgRef(pub Index);
+
+/// Represents a value in the C registry
+#[derive(Debug)]
+pub struct RegVal {
+    pub reference: Reference,
+    pub(crate) inner: ArcLuaInner,
+}
 
 /// Represents a strict typed value, such as an integer value
 #[derive(Clone, Copy)]
@@ -99,6 +109,21 @@ impl<'a> FromLua<'a> for Strict<&'a str> {
 impl ToLua for ArgRef {
     const __PUSH: Option<fn(Self, &State) -> Result<()>> =
         Some(|this, s: &State| Ok(s.push_value(this.0)));
+}
+
+impl ToLua for &RegVal {
+    const __PUSH: Option<fn(Self, &State) -> LuaResult<()>> = Some(|this, s| unsafe {
+        ffi::lua_rawgeti(s.raw_state(), ffi::LUA_REGISTRYINDEX, this.reference.0 as _);
+        Ok(())
+    });
+}
+
+impl Drop for RegVal {
+    fn drop(&mut self) {
+        self.inner
+            .0
+            .unreference(ffi::LUA_REGISTRYINDEX, self.reference);
+    }
 }
 
 /// Represents an iterator
