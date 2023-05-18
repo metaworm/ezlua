@@ -41,7 +41,7 @@ mlua = {version = '0.8', features = ['lua54', 'vendored']}
 
 [build-dependencies]
 cc = '1'
-lua-src = { version = "544", optional = true }
+lua-src = { version = "546", optional = true }
 
 [patch.crates-io]
 lua-src = { git = "https://github.com/metaworm/lua-src-rs" }
