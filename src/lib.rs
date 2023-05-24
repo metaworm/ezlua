@@ -66,7 +66,6 @@ pub mod value;
 #[cfg(feature = "async")]
 mod r#async;
 mod coroutine;
-mod luaconf;
 mod state;
 
 #[cfg(feature = "thread")]

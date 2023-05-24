@@ -133,7 +133,7 @@ impl State {
 
     /// Maps to `lua_version`.
     fn version(state: *mut lua_State) -> lua_Number {
-        unsafe { *lua_version(state) }
+        unsafe { lua_version(state) }
     }
 
     //===========================================================================
@@ -572,7 +572,6 @@ impl State {
         let state = self.state;
         drop(self);
         unsafe { lua_error(state) };
-        unreachable!()
     }
 
     /// Maps to `lua_next`.
@@ -828,7 +827,7 @@ impl State {
     }
 
     /// Maps to `lua_gethook`.
-    fn get_hook(&self) -> lua_Hook {
+    fn get_hook(&self) -> Option<lua_Hook> {
         unsafe { lua_gethook(self.state) }
     }
 
@@ -842,14 +841,6 @@ impl State {
     /// Maps to `lua_gethookcount`.
     fn get_hook_count(&self) -> c_int {
         unsafe { lua_gethookcount(self.state) }
-    }
-
-    //===========================================================================
-    // Auxiliary library functions
-    //===========================================================================
-    /// Maps to `luaL_checkversion`.
-    fn check_version(&self) {
-        unsafe { luaL_checkversion(self.state) }
     }
 
     /// Maps to `luaL_getmetafield`.
@@ -925,16 +916,6 @@ impl State {
         unsafe { luaL_argerror(self.state, arg, extramsg.as_ptr()) };
         unreachable!()
     }
-
-    /// Maps to `luaL_typeerror`.
-    #[inline(always)]
-    fn type_error(&self, arg: Index, tname: &CStr) -> ! {
-        unsafe { luaL_typeerror(self.state, arg, tname.as_ptr()) };
-        unreachable!()
-    }
-
-    // omitted: luaL_checkstring
-    // omitted: luaL_optstring
 
     /// Maps to `luaL_checknumber`.
     #[inline(always)]
@@ -1120,14 +1101,7 @@ impl State {
             0
         }
         let writer: &mut dyn FnMut(&[u8]) = &mut writer;
-        unsafe {
-            lua_dump(
-                self.state,
-                Some(dump_wrapper),
-                transmute(&writer),
-                strip as c_int,
-            )
-        }
+        unsafe { lua_dump(self.state, dump_wrapper, transmute(&writer), strip as c_int) }
     }
 
     /// Maps to `luaL_len`.
@@ -1188,20 +1162,6 @@ impl State {
     #[inline(always)]
     fn requiref(&self, modname: &CStr, openf: CFunction, glb: bool) {
         unsafe { luaL_requiref(self.state, modname.as_ptr(), Some(openf), glb as c_int) }
-    }
-
-    /// Maps to `luaL_newlibtable`.
-    #[inline(always)]
-    fn new_lib_table(&self, l: &[(&str, lua_CFunction)]) {
-        UnsafeLuaApi::create_table(self, 0, l.len() as c_int)
-    }
-
-    /// Maps to `luaL_newlib`.
-    #[inline(always)]
-    fn new_lib(&self, l: &[(&str, lua_CFunction)]) {
-        self.check_version();
-        self.new_lib_table(l);
-        self.set_fns(l, 0)
     }
 
     /// Maps to `luaL_argcheck`.
@@ -1363,7 +1323,7 @@ pub enum ThreadStatus {
     RuntimeError = LUA_ERRRUN as isize,
     SyntaxError = LUA_ERRSYNTAX as isize,
     MemoryError = LUA_ERRMEM as isize,
-    GcError = LUA_ERRGCMM as isize,
+    // GcError = LUA_ERRGCMM as isize,
     MessageHandlerError = LUA_ERRERR as isize,
     FileError = LUA_ERRFILE as isize,
 }
@@ -1376,7 +1336,7 @@ impl ThreadStatus {
             LUA_ERRRUN => ThreadStatus::RuntimeError,
             LUA_ERRSYNTAX => ThreadStatus::SyntaxError,
             LUA_ERRMEM => ThreadStatus::MemoryError,
-            LUA_ERRGCMM => ThreadStatus::GcError,
+            // LUA_ERRGCMM => ThreadStatus::GcError,
             LUA_ERRERR => ThreadStatus::MessageHandlerError,
             LUA_ERRFILE => ThreadStatus::FileError,
             _ => panic!("Unknown Lua error code: {}", i),
@@ -1393,7 +1353,7 @@ impl ThreadStatus {
             ThreadStatus::RuntimeError
             | ThreadStatus::SyntaxError
             | ThreadStatus::MemoryError
-            | ThreadStatus::GcError
+            // | ThreadStatus::GcError
             | ThreadStatus::MessageHandlerError
             | ThreadStatus::FileError => true,
             ThreadStatus::Ok | ThreadStatus::Yield => false,
