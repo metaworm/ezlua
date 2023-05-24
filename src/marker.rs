@@ -1,17 +1,17 @@
 //! Helpers to simplify the type conversion between rust and lua
 
-use alloc::boxed::Box;
 use alloc::string::ToString;
+use alloc::{boxed::Box, vec::Vec};
 use core::mem;
 
-use crate::error::Result;
-use crate::ffi::{self, lua_State, CFunction};
-use crate::luaapi::{Reference, UnsafeLuaApi};
-use crate::prelude::{LuaResult, LuaType};
-use crate::state::State;
 use crate::{
     convert::{FromLua, Index, ToLua, ToLuaMulti},
-    prelude::ArcLuaInner,
+    error::Result,
+    ffi::{self, lua_State, CFunction},
+    luaapi::{Reference, UnsafeLuaApi},
+    prelude::{ArcLuaInner, LuaResult, LuaType},
+    state::State,
+    value::ValRef,
 };
 
 /// Mark an error result return as `nil, error` rather than raising it
@@ -51,8 +51,20 @@ pub type StrictBool = Strict<bool>;
 /// Represents an iterator will be converted to a lua array table
 pub struct IterVec<T: ToLua, I: Iterator<Item = T>>(pub I);
 
+impl<T: ToLua, I: IntoIterator<Item = T>> From<I> for IterVec<T, I::IntoIter> {
+    fn from(value: I) -> Self {
+        Self(value.into_iter())
+    }
+}
+
 /// Represents an iterator will be converted to a lua table
 pub struct IterMap<K: ToLua, V: ToLua, I: Iterator<Item = (K, V)>>(pub I);
+
+impl<K: ToLua, V: ToLua, I: IntoIterator<Item = (K, V)>> From<I> for IterMap<K, V, I::IntoIter> {
+    fn from(value: I) -> Self {
+        Self(value.into_iter())
+    }
+}
 
 impl<T: ToLua, I: Iterator<Item = T>> ToLua for IterVec<T, I> {
     const __PUSH: Option<fn(Self, &State) -> Result<()>> = Some(|this, s: &State| {
@@ -162,7 +174,7 @@ impl<'a, T: ToLuaMulti + 'a> ToLua for StaticIter<'a, T> {
             "__gc",
             crate::convert::__gc::<StaticIter<'static, usize>> as CFunction,
         )?;
-        mt.ensure_top();
+        mt.0.ensure_top();
         s.set_metatable(-2);
         s.push_cclosure(Some(Self::lua_fn), 1);
         Ok(())
@@ -187,5 +199,20 @@ impl State {
     /// Push results to stack
     pub fn pushed<T: ToLuaMulti>(&self, results: T) -> Result<Pushed> {
         results.push_multi(self).map(Pushed)
+    }
+}
+
+/// Represents a bytes buffer
+pub struct LuaBytes(pub Vec<u8>);
+
+impl ToLua for LuaBytes {
+    fn to_lua<'a>(self, s: &'a State) -> LuaResult<ValRef<'a>> {
+        self.0.as_slice().to_lua(s)
+    }
+}
+
+impl FromLua<'_> for LuaBytes {
+    fn from_index(s: &State, i: Index) -> Option<Self> {
+        Some(Self(<&[u8] as FromLua>::from_index(s, i)?.to_vec()))
     }
 }

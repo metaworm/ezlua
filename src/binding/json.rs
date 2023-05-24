@@ -6,13 +6,13 @@ impl ToLua for serde_json::Value {
     }
 }
 
-pub fn open(s: &LuaState) -> LuaResult<ValRef> {
+pub fn open(s: &LuaState) -> LuaResult<LuaTable> {
     let m = s.new_table()?;
     m.register1("load", |s: &LuaState, buf: &[u8]| {
         s.load_from_deserializer(&mut serde_json::Deserializer::from_slice(buf))
     })?;
-    m.register("dump", |val: ValRef, pretty: Value| match pretty {
-        Value::Bool(true) => serde_json::to_vec_pretty(&val),
+    m.register("dump", |val: ValRef, pretty: LuaValue| match pretty {
+        LuaValue::Bool(true) => serde_json::to_vec_pretty(&val),
         _ => serde_json::to_vec(&val),
     })?;
     m.register("print", |val: ValRef| {

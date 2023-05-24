@@ -17,18 +17,18 @@ impl UserData for Captures<'_> {
 
     fn metatable(mt: UserdataRegistry<Self>) -> Result<()> {
         mt.add("__len", Captures::len)?;
-        mt.add("__index", |this: &Self, arg: Value| {
+        mt.add("__index", |this: &Self, arg: LuaValue| {
             match arg {
-                Value::Integer(i) => this.get(i as _),
-                Value::String(s) => this.name(s.to_str().unwrap_or_default()),
+                LuaValue::Integer(i) => this.get(i as _),
+                LuaValue::String(s) => this.name(s.to_str().unwrap_or_default()),
                 _ => None,
             }
             .map(|m| m.as_str())
         })?;
-        mt.register2("__call", |s, this: MaybePtrRef<Self>, arg: Value| {
+        mt.register2("__call", |s, this: MaybePtrRef<Self>, arg: LuaValue| {
             match arg {
-                Value::Integer(i) => this.get(i as _),
-                Value::String(s) => this.name(s.to_str().unwrap_or_default()),
+                LuaValue::Integer(i) => this.get(i as _),
+                LuaValue::String(s) => this.name(s.to_str().unwrap_or_default()),
                 _ => None,
             }
             .map(|m| s.new_userdata_with_values(m, [ArgRef(1)]))
@@ -82,12 +82,12 @@ impl UserData for Regex {
             IterVec(this.split(text))
         })?;
         // https://docs.rs/regex/latest/regex/struct.Regex.html#method.replace
-        mt.register3("replace", |_, this: &Self, text: &str, sub: Value| {
+        mt.register3("replace", |_, this: &Self, text: &str, sub: LuaValue| {
             Ok(match sub {
-                Value::String(s) => {
+                LuaValue::String(s) => {
                     this.replace(text, s.to_str_lossy().unwrap_or_default().as_ref())
                 }
-                Value::Function(f) => this.replace(text, |caps: &Captures| {
+                LuaValue::Function(f) => this.replace(text, |caps: &Captures| {
                     f.pcall::<_, String>(MaybePtrRef(caps))
                         .map_err(|err| {
                             // TODO: log err
@@ -127,6 +127,6 @@ impl UserData for Regex {
     }
 }
 
-pub fn open(s: &LuaState) -> Result<ValRef> {
+pub fn open(s: &LuaState) -> Result<LuaTable> {
     s.register_usertype::<Regex>()
 }

@@ -203,7 +203,7 @@ impl State {
             self.push_userdatauv(f, 0)?;
             let mt = self.create_table(0, 1)?;
             mt.set("__gc", __gc::<F> as CFunction)?;
-            mt.ensure_top();
+            mt.0.ensure_top();
             self.set_metatable(-2);
             self.push_cclosure(Some(async_closure_wrapper::<R, FUT, F>), 1);
         }

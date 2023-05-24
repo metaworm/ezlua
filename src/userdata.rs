@@ -78,19 +78,25 @@ impl<T> UserDataTrans<T> for RefCell<T> {
 
 impl<'a, T: UserData<Trans = RefCell<T>>> FromLua<'a> for &'a RefCell<T> {
     fn from_lua(s: &'a State, val: ValRef<'a>) -> Option<Self> {
-        val.userdata_ref::<T>()
+        LuaUserData::from(val).userdata_ref::<T>()
     }
 }
 
 impl<'a, T: UserData<Trans = RefCell<T>>> FromLua<'a> for Ref<'a, T> {
     fn from_lua(s: &'a State, val: ValRef<'a>) -> Option<Self> {
-        val.userdata_ref::<T>()?.try_borrow().ok()
+        LuaUserData::from(val)
+            .userdata_ref::<T>()?
+            .try_borrow()
+            .ok()
     }
 }
 
 impl<'a, T: UserData<Trans = RefCell<T>>> FromLua<'a> for RefMut<'a, T> {
     fn from_lua(s: &'a State, val: ValRef<'a>) -> Option<Self> {
-        val.userdata_ref::<T>()?.try_borrow_mut().ok()
+        LuaUserData::from(val)
+            .userdata_ref::<T>()?
+            .try_borrow_mut()
+            .ok()
     }
 }
 
@@ -171,7 +177,7 @@ pub trait UserData: Sized {
             let setter = mt.state.create_table(0, 0)?;
             mt.state
                 .balance_with(|_| Self::setter(UserdataRegistry::new(&setter)))?;
-            setter.ensure_top();
+            setter.0.ensure_top();
             mt.state.push_cclosure(Some(Self::__newindex), 1);
             mt.state.set_field(mt.index, crate::cstr!("__newindex"));
         }
@@ -190,8 +196,8 @@ pub trait UserData: Sized {
                 Self::methods(UserdataRegistry::new(&methods))?;
                 Self::getter(UserdataRegistry::new(&getter))
             })?;
-            getter.ensure_top();
-            methods.ensure_top();
+            getter.0.ensure_top();
+            methods.0.ensure_top();
             mt.get("__index")?.ensure_top();
             mt.state.push_cclosure(Some(Self::__index), 3);
             mt.state.set_field(mt.index, crate::cstr!("__index"));
@@ -221,7 +227,7 @@ pub trait UserData: Sized {
     }
 
     /// initialize userdata on the top of lua stack
-    fn init_userdata(s: &State, udata: &ValRef) -> Result<()> {
+    fn init_userdata(s: &State, udata: &LuaUserData) -> Result<()> {
         if Self::INDEX_USERVALUE {
             udata.set_uservalue(s.new_table()?)
         } else {
@@ -362,7 +368,8 @@ pub trait UserData: Sized {
 
     unsafe extern "C" fn __gc(l: *mut lua_State) -> c_int {
         let s = State::from_raw_state(l);
-        if let Some(p) = s.val(1).userdata_ref_mut::<Self>() {
+        let u = s.arg::<LuaUserData>(1);
+        if let Some(p) = u.as_ref().and_then(|u| u.userdata_ref_mut::<Self>()) {
             p.when_drop();
         }
         0
@@ -370,7 +377,8 @@ pub trait UserData: Sized {
 
     unsafe extern "C" fn __close(l: *mut lua_State) -> c_int {
         let s = State::from_raw_state(l);
-        if let Some(p) = s.val(1).userdata_ref_mut::<Self>() {
+        let u = s.arg::<LuaUserData>(1);
+        if let Some(p) = u.as_ref().and_then(|u| u.userdata_ref_mut::<Self>()) {
             p.when_drop();
             // erase its metatable
             lua_pushnil(l);
@@ -394,7 +402,7 @@ unsafe extern "C" fn __len(l: *mut lua_State) -> c_int {
 
 fn init_userdata<T: UserData>(s: &State) -> Result<()> {
     let ud = s.val(-1);
-    T::init_userdata(s, &ud)
+    T::init_userdata(s, &ud.into())
 }
 
 impl<T: UserData + 'static> ToLua for T {
@@ -446,14 +454,14 @@ impl<'a, T: UserData<Trans = T>> FromLua<'a> for &'a T {
 impl State {
     /// Register a metatable of UserData into the C registry and return it
     #[inline(always)]
-    pub fn register_usertype<U: UserData>(&self) -> Result<ValRef> {
+    pub fn register_usertype<U: UserData>(&self) -> Result<Table> {
         self.get_or_init_metatable(U::INIT)?;
-        Ok(self.top_val())
+        Ok(self.top_val().into())
     }
 
     /// Create userdata
     #[inline(always)]
-    pub fn new_userdata<T: UserData>(&self, data: T) -> Result<ValRef> {
+    pub fn new_userdata<T: UserData>(&self, data: T) -> Result<LuaUserData> {
         self.new_userdata_with_values::<T, (), 0>(data, [])
     }
 
@@ -462,10 +470,10 @@ impl State {
         &self,
         data: T,
         refs: [R; N],
-    ) -> Result<ValRef> {
+    ) -> Result<LuaUserData> {
         let mut n = data.uservalue_count(self);
         self.push_udatauv(data, N as _)?;
-        let ud = self.top_val();
+        let ud = LuaUserData::from(self.top_val());
         for r in refs.into_iter() {
             n += 1;
             ud.set_iuservalue(n, r)?;
@@ -595,7 +603,7 @@ impl<'a, U: 'a + ?Sized, R: 'a, W> MethodRegistry<'a, &U, R, W> {
         V: LuaMethod<'a, (W, &'a U, &'a U), ARGS, RET>,
         U: 'a,
         W: DerefMut<Target = U>,
-        &'a W: FromLua<'a>,
+        &'a W: FromLua<'a> + 'a,
     {
         self.0.raw_set(k, RustClosure(v, PhantomData))?;
         Ok(self)
@@ -623,7 +631,7 @@ impl<'a, U: 'a, R: 'a, W> MethodRegistry<'a, U, R, W> {
     where
         K: ToLua,
         V: LuaMethod<'a, (W, &'a mut U), ARGS, RET>,
-        W: DerefMut<Target = U> + FromLua<'a>,
+        W: DerefMut<Target = U> + FromLua<'a> + 'a,
     {
         self.0.raw_set(k, RustClosure(v, PhantomData))?;
         Ok(self)

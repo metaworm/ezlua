@@ -212,11 +212,11 @@ impl<'a> SerializeTupleVariant for LuaTableSerializer<'a> {
 
 impl<'a> LuaTableSerializer<'a> {
     fn begin(s: &'a State, len: usize) -> LuaResult<Self> {
-        s.create_table(0, len as _).map(|val| Self(val, None))
+        s.create_table(0, len as _).map(|val| Self(val.0, None))
     }
 
     fn begin_array(s: &'a State, len: usize) -> LuaResult<Self> {
-        s.create_table(len as _, 0).map(|val| Self(val, None))
+        s.create_table(len as _, 0).map(|val| Self(val.0, None))
     }
 }
 
@@ -980,7 +980,7 @@ impl<'de> Visitor<'de> for LuaVisitor<'de> {
                 t.raw_seti(i, val).map_err(A::Error::custom)?;
             }
         }
-        Ok(t)
+        Ok(t.0)
     }
 
     fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
@@ -1011,7 +1011,7 @@ impl<'de> Visitor<'de> for LuaVisitor<'de> {
             }
         }
 
-        Ok(t)
+        Ok(t.0)
     }
 }
 

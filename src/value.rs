@@ -130,7 +130,7 @@ impl<'a> ValRef<'a> {
     }
 
     #[inline]
-    pub fn cast<T: FromLua<'a>>(&self) -> Option<T> {
+    pub fn cast<'v, T: FromLua<'a> + 'v>(&'v self) -> Option<T> {
         self.state.arg(self.index)
     }
 
@@ -191,11 +191,6 @@ impl<'a> ValRef<'a> {
     }
 
     #[inline(always)]
-    pub fn raw_push<V: ToLua>(&self, val: V) -> Result<()> {
-        self.raw_seti((self.raw_len() + 1) as i64, val)
-    }
-
-    #[inline(always)]
     pub fn raw_insert<V: ToLua>(&self, i: usize, val: V) -> Result<()> {
         self.raw_move_vals(i)?;
         self.raw_seti(i as i64, val)
@@ -206,6 +201,11 @@ impl<'a> ValRef<'a> {
             self.raw_seti((i + 1) as i64, self.raw_get(i as i64)?)?;
         }
         Ok(())
+    }
+
+    #[inline(always)]
+    pub fn push<V: ToLua>(&self, val: V) -> Result<()> {
+        self.raw_seti((self.raw_len() + 1) as i64, val)
     }
 
     #[inline]
@@ -386,76 +386,8 @@ impl<'a> ValRef<'a> {
         })
     }
 
-    // //////////////// for userdata //////////////////
-    #[inline]
-    pub fn set_uservalue<V: ToLua>(&self, v: V) -> Result<()> {
-        self.check_type(Type::Userdata)?;
-        self.state.push(v)?;
-        self.state.set_uservalue(self.index);
-        Ok(())
-    }
-
-    #[inline]
-    pub fn get_uservalue(&self) -> Result<ValRef<'a>> {
-        self.check_type(Type::Userdata)?;
-        self.state.get_uservalue(self.index);
-        Ok(self.state.top_val())
-    }
-
-    #[inline]
-    pub fn set_iuservalue<V: ToLua>(&self, n: i32, v: V) -> Result<()> {
-        self.check_type(Type::Userdata)?;
-        self.state.push(v)?;
-        self.state.set_iuservalue(self.index, n);
-        Ok(())
-    }
-
-    #[inline]
-    pub fn get_iuservalue(&self, n: i32) -> Result<ValRef<'a>> {
-        self.check_type(Type::Userdata)?;
-        self.state.get_iuservalue(self.index, n);
-        Ok(self.state.top_val())
-    }
-
-    #[inline]
-    pub fn get_upvalue_name(&self, i: Index) -> Result<Option<&'a str>> {
-        self.check_type(Type::Function)?;
-        Ok(self.state.get_upvalue(self.index, i))
-    }
-
-    #[inline]
-    pub fn get_upvalue(&self, i: Index) -> Result<Option<ValRef<'a>>> {
-        self.check_type(Type::Function)?;
-        Ok(self
-            .state
-            .get_upvalue(self.index, i)
-            .map(|_| self.state.top_val()))
-    }
-
-    #[inline]
-    pub fn set_upvalue(&self, i: Index, val: impl ToLua) -> Result<()> {
-        self.check_type(Type::Function)?;
-        self.state.push(val)?;
-        self.state.set_upvalue(self.index, i);
-        Ok(())
-    }
-
-    #[inline(always)]
-    pub fn userdata_ref<U: UserData>(&self) -> Option<&'a U::Trans> {
-        unsafe {
-            self.state
-                .test_userdata_meta::<U::Trans>(self.index, U::INIT)
-                .map(|x| x as _)
-        }
-    }
-
-    #[inline(always)]
-    pub unsafe fn userdata_ref_mut<U: UserData>(&self) -> Option<&mut U::Trans> {
-        self.state
-            .test_userdata_meta::<U::Trans>(self.index, U::INIT)
-    }
-
-    pub fn check_valied(self) -> Option<Self> {
+    /// return Some(self) if type is neither Type::Invalid nor Type::None
+    pub fn check_valid(self) -> Option<Self> {
         match self.type_of() {
             Type::Invalid | Type::None => None,
             _ => Some(self),
@@ -533,5 +465,115 @@ unsafe impl Sync for Value<'_> {}
 impl<'a> Value<'a> {
     pub fn light_userdata<T: Sized>(p: *const T) -> Self {
         Value::LightUserdata(p as usize as _)
+    }
+}
+
+#[derive(Debug, Clone, derive_more::Deref)]
+pub struct Table<'l>(pub(crate) ValRef<'l>);
+
+#[derive(Debug, Clone, derive_more::Deref)]
+pub struct Function<'l>(pub(crate) ValRef<'l>);
+
+#[derive(Debug, Clone, derive_more::Deref)]
+pub struct LuaString<'l>(pub(crate) ValRef<'l>);
+
+#[derive(Debug, Clone, derive_more::Deref)]
+pub struct LuaThread<'l>(pub(crate) ValRef<'l>);
+
+#[derive(Debug, Clone, derive_more::Deref)]
+pub struct LuaUserData<'l>(pub(crate) ValRef<'l>);
+
+macro_rules! impl_wrap {
+    ($t:ty, $lt:expr) => {
+        impl<'a> From<ValRef<'a>> for $t {
+            fn from(val: ValRef<'a>) -> Self {
+                assert_eq!(val.type_of(), $lt);
+                Self(val)
+            }
+        }
+
+        impl<'a> ToLua for $t {
+            const __PUSH: Option<fn(Self, &State) -> Result<()>> =
+                Some(|this, s: &State| Ok(s.pushval(this.0)));
+        }
+
+        impl<'a> FromLua<'a> for $t {
+            #[inline(always)]
+            fn from_index(s: &'a State, i: Index) -> Option<Self> {
+                let val = s.val(i);
+                (val.type_of() == $lt).then_some(Self(val))
+            }
+        }
+    };
+}
+
+impl_wrap!(Table<'a>, Type::Table);
+impl_wrap!(Function<'a>, Type::Function);
+impl_wrap!(LuaString<'a>, Type::String);
+impl_wrap!(LuaThread<'a>, Type::Thread);
+impl_wrap!(LuaUserData<'a>, Type::Userdata);
+
+impl<'a> Function<'a> {
+    #[inline]
+    pub fn get_upvalue(&self, i: Index) -> Result<Option<ValRef<'a>>> {
+        Ok(self
+            .state
+            .get_upvalue(self.index, i)
+            .map(|_| self.state.top_val()))
+    }
+
+    #[inline]
+    pub fn get_upvalue_name(&self, i: Index) -> Result<Option<&'a str>> {
+        Ok(self.state.get_upvalue(self.index, i))
+    }
+
+    #[inline]
+    pub fn set_upvalue(&self, i: Index, val: impl ToLua) -> Result<()> {
+        self.state.push(val)?;
+        self.state.set_upvalue(self.index, i);
+        Ok(())
+    }
+}
+
+impl<'a> LuaUserData<'a> {
+    #[inline]
+    pub fn set_uservalue<V: ToLua>(&self, v: V) -> Result<()> {
+        self.state.push(v)?;
+        self.state.set_uservalue(self.index);
+        Ok(())
+    }
+
+    #[inline]
+    pub fn get_uservalue(&self) -> Result<ValRef<'a>> {
+        self.state.get_uservalue(self.index);
+        Ok(self.state.top_val())
+    }
+
+    #[inline]
+    pub fn set_iuservalue<V: ToLua>(&self, n: i32, v: V) -> Result<()> {
+        self.state.push(v)?;
+        self.state.set_iuservalue(self.index, n);
+        Ok(())
+    }
+
+    #[inline]
+    pub fn get_iuservalue(&self, n: i32) -> Result<ValRef<'a>> {
+        self.state.get_iuservalue(self.index, n);
+        Ok(self.state.top_val())
+    }
+
+    #[inline(always)]
+    pub fn userdata_ref<U: UserData>(&self) -> Option<&'a U::Trans> {
+        unsafe {
+            self.state
+                .test_userdata_meta::<U::Trans>(self.index, U::INIT)
+                .map(|x| x as _)
+        }
+    }
+
+    #[inline(always)]
+    pub unsafe fn userdata_ref_mut<U: UserData>(&self) -> Option<&mut U::Trans> {
+        self.state
+            .test_userdata_meta::<U::Trans>(self.index, U::INIT)
     }
 }

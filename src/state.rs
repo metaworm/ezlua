@@ -80,7 +80,10 @@ pub mod unsafe_impl {
     use alloc::string::String;
 
     use super::*;
-    use crate::luaapi::UnsafeLuaApi;
+    use crate::{
+        luaapi::UnsafeLuaApi,
+        value::{Function, LuaString, Table},
+    };
 
     impl<'a> Drop for StackGuard<'a> {
         fn drop(&mut self) {
@@ -202,42 +205,43 @@ pub mod unsafe_impl {
         }
 
         #[inline(always)]
-        pub fn create_table(&self, narr: c_int, nrec: c_int) -> Result<ValRef> {
+        pub fn create_table(&self, narr: c_int, nrec: c_int) -> Result<Table> {
             UnsafeLuaApi::create_table(self, narr, nrec);
-            Ok(self.top_val())
+            Ok(self.top_val().into())
         }
 
         /// Create a table
         #[inline(always)]
-        pub fn new_table(&self) -> Result<ValRef> {
+        pub fn new_table(&self) -> Result<Table> {
             self.create_table(0, 0)
         }
 
         /// Create a lua string
         #[inline]
-        pub fn new_string<S: AsRef<[u8]>>(&self, s: S) -> Result<ValRef> {
+        pub fn new_string<S: AsRef<[u8]>>(&self, s: S) -> Result<LuaString> {
             self.push_bytes(s.as_ref());
-            Ok(self.top_val())
+            Ok(self.top_val().into())
         }
 
         /// Create function from script string or bytecode
         #[inline(always)]
-        pub fn new_function<S: AsRef<[u8]>>(&self, s: S, name: Option<&str>) -> Result<ValRef> {
+        pub fn new_function<S: AsRef<[u8]>>(&self, s: S, name: Option<&str>) -> Result<Function> {
             self.load(s, name)
         }
 
         /// Load script string or bytecode
-        pub fn load<S: AsRef<[u8]>>(&self, s: S, name: Option<&str>) -> Result<ValRef> {
+        pub fn load<S: AsRef<[u8]>>(&self, s: S, name: Option<&str>) -> Result<Function> {
+            self.check_stack(1)?;
             let guard = self.stack_guard();
             self.statuscode_to_error(self.load_buffer(s, name))?;
             core::mem::forget(guard);
-            Ok(self.top_val())
+            Ok(self.top_val().into())
         }
 
         #[cfg(feature = "std")]
         /// Create function from script file
         #[inline]
-        pub fn load_file<P: AsRef<Path>>(&self, path: P) -> Result<ValRef> {
+        pub fn load_file<P: AsRef<Path>>(&self, path: P) -> Result<Function> {
             let path = path.as_ref();
             self.new_function(
                 std::fs::read(path).map_err(Error::from_debug)?,
@@ -246,7 +250,7 @@ pub mod unsafe_impl {
         }
 
         #[inline(always)]
-        pub fn register_module<'a, F: Fn(&'a State) -> Result<ValRef<'a>>>(
+        pub fn register_module<'a, F: Fn(&'a State) -> Result<Table<'a>>>(
             &self,
             name: &str,
             init: F,
@@ -306,7 +310,7 @@ pub mod unsafe_impl {
 
                 self.push_value(mt.index);
                 self.raw_setp(LUA_REGISTRYINDEX, p);
-                mt.ensure_top();
+                mt.0.ensure_top();
                 self.replace(-2);
             }
             assert_eq!(self.get_top(), top + 1);
@@ -326,8 +330,8 @@ pub mod unsafe_impl {
 
         // ///////////////////////// Wrapper functions //////////////////////////////
 
-        pub fn check_udata<T>(&self, i: Index, name: &CStr) -> &mut T {
-            unsafe { mem::transmute(luaL_checkudata(self.state, i, name.as_ptr())) }
+        pub unsafe fn check_userdata<T>(&self, i: Index, name: &CStr) -> &mut T {
+            mem::transmute(luaL_checkudata(self.state, i, name.as_ptr()))
         }
 
         pub fn test_userdata_meta_(&self, i: Index, meta: MetatableKey) -> *mut () {
@@ -345,17 +349,6 @@ pub mod unsafe_impl {
         #[inline(always)]
         pub unsafe fn test_userdata_meta<T>(&self, i: Index, meta: MetatableKey) -> Option<&mut T> {
             (self.test_userdata_meta_(i, meta) as *mut T).as_mut()
-        }
-
-        pub unsafe fn check_userdata<T>(&self, i: Index, meta: MetatableKey) -> &mut T {
-            let p = self.test_userdata_meta::<T>(i, meta);
-            match p {
-                Some(p) => p,
-                None => {
-                    let tname = CString::new(core::any::type_name::<T>()).unwrap_or_default();
-                    self.type_error(i, &tname);
-                }
-            }
         }
 
         /// [-1, +1, -]
@@ -408,6 +401,14 @@ pub mod unsafe_impl {
             self.error_string(format!("{e:?}"))
         }
 
+        pub fn gc_collect(&self) -> Result<()> {
+            use crate::luaapi::GcOption;
+
+            self.gc(GcOption::Collect, 0);
+
+            Ok(())
+        }
+
         pub unsafe extern "C" fn traceback_c(l: *mut lua_State) -> i32 {
             luaL_traceback(l, l, lua_tostring(l, 1), 1);
             1
@@ -423,7 +424,7 @@ pub mod unsafe_impl {
                         ThreadStatus::RuntimeError | ThreadStatus::MessageHandlerError => {
                             Err(Error::runtime(err))
                         }
-                        ThreadStatus::GcError => Err(Error::Gc(err)),
+                        // ThreadStatus::GcError => Err(Error::Gc(err)),
                         ThreadStatus::SyntaxError => Err(Error::Syntax(err)),
                         ThreadStatus::MemoryError => Err(Error::Memory(err)),
                         ThreadStatus::FileError => Err(Error::runtime(err)),
@@ -431,6 +432,14 @@ pub mod unsafe_impl {
                     }
                 }
             }
+        }
+
+        pub(crate) fn statuscode_to_error_and_pop(&self, ts: i32) -> Result<()> {
+            let result = self.statuscode_to_error(ts);
+            if result.is_err() {
+                self.pop(1)
+            };
+            result
         }
 
         pub(crate) fn statuscode_to_error(&self, ts: i32) -> Result<()> {
@@ -441,7 +450,7 @@ pub mod unsafe_impl {
                     let err = self.to_str_lossy(-1).unwrap_or_default().into_owned();
                     match ts {
                         LUA_ERRRUN | LUA_ERRERR => Err(Error::runtime(err)),
-                        LUA_ERRGCMM => Err(Error::Gc(err)),
+                        // LUA_ERRGCMM => Err(Error::Gc(err)),
                         LUA_ERRSYNTAX => Err(Error::Syntax(err)),
                         LUA_ERRMEM => Err(Error::Memory(err)),
                         LUA_ERRFILE => Err(Error::runtime(err)),

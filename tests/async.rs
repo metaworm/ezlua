@@ -85,7 +85,7 @@ async fn async_stack_balance() {
     for i in 0..20 {
         println!("top{i} {}", s.stack_top());
         let (_, _, s3) = foo
-            .call_async::<_, (Value, Value, ValRef)>((1, 2, "3"))
+            .call_async::<_, (LuaValue, LuaValue, ValRef)>((1, 2, "3"))
             .await
             .unwrap();
         assert_eq!(s3.to_str().unwrap(), "3");

@@ -8,4 +8,4 @@ pub use crate::luaapi::{Reference, ThreadStatus, Type as LuaType};
 pub use crate::marker::*;
 pub use crate::state::State as LuaState;
 pub use crate::userdata::{UserData, UserdataRegistry};
-pub use crate::value::{ValRef, Value};
+pub use crate::value::{Function as LuaFunction, Table as LuaTable, ValRef, Value as LuaValue};

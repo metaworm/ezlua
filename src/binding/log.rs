@@ -19,8 +19,9 @@ fn lualog(level: ::log::Level, arg: ValRef) {
     )
 }
 
-pub fn open(s: &LuaState) -> LuaResult<ValRef> {
+pub fn open(s: &LuaState) -> LuaResult<LuaTable> {
     let m = s.new_table()?;
+
     m.register1("info", |s: &LuaState, arg: ValRef| {
         lualog(log::Level::Info, arg)
     })?;

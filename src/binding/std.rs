@@ -44,7 +44,7 @@ pub mod path {
         }
     }
 
-    pub fn init(s: &LuaState) -> Result<ValRef> {
+    pub fn init(s: &LuaState) -> Result<LuaTable> {
         let t = s.create_table(0, 8)?;
         t.register("dirname", Path::parent)?;
         t.register("exists", Path::exists)?;
@@ -142,10 +142,10 @@ pub mod time {
     impl<'a> FromLua<'a> for Duration {
         fn from_lua(s: &'a LuaState, val: ValRef<'a>) -> Option<Self> {
             Some(match val.into_value() {
-                Value::Integer(n) => Duration::from_secs(n as _),
-                Value::Number(n) => Duration::from_secs_f64(n),
+                LuaValue::Integer(n) => Duration::from_secs(n as _),
+                LuaValue::Number(n) => Duration::from_secs_f64(n),
                 // TODO: 1s 1ms 1ns
-                // Value::Str(_) => todo!(),
+                // LuaValue::Str(_) => todo!(),
                 _ => return None,
             })
         }
@@ -334,7 +334,7 @@ pub fn extend_os(s: &LuaState) -> Result<()> {
             result.set("is_dir", self.is_dir())?;
             result.set("is_file", self.is_file())?;
             result.set("is_symlink", self.is_symlink())?;
-            Ok(result)
+            result.to_lua(s)
         }
     }
 
@@ -404,11 +404,11 @@ pub fn extend_os(s: &LuaState) -> Result<()> {
             });
         Ok(cmd)
     }
-    os.register("command", |s: &LuaState, arg: Value| match arg {
-        Value::String(cmd) => Ok(Command::new(
+    os.register("command", |s: &LuaState, arg: LuaValue| match arg {
+        LuaValue::String(cmd) => Ok(Command::new(
             cmd.to_str_lossy().unwrap_or_default().as_ref(),
         )),
-        Value::Table(t) => init_command(t),
+        LuaValue::Table(t) => init_command(t),
         _ => Err("string|table").convert_error(),
     })?;
     os.register("spawn_child", |arg| init_command(arg)?.spawn().lua_result())?;
@@ -618,7 +618,7 @@ mod thread {
         }
     }
 
-    pub fn init(s: &LuaState) -> Result<()> {
+    pub fn init(s: &LuaState) -> Result<LuaTable> {
         let t = s.create_table(0, 4)?;
         t.register("spawn", |routine: Coroutine, name: Option<&str>| {
             thread::Builder::new()
@@ -657,9 +657,7 @@ mod thread {
         t.register("mutex", LuaMutex::default)?;
         t.register("condvar", LuaCondVar::default)?;
 
-        s.global().set("thread", t)?;
-
-        Ok(())
+        Ok(t)
     }
 }
 
@@ -667,11 +665,11 @@ pub fn init_global(s: &LuaState) -> Result<()> {
     extend_os(s)?;
     extend_string(s)?;
     #[cfg(feature = "thread")]
-    thread::init(s)?;
+    s.register_module("thread", thread::init, true)?;
 
     let g = s.global();
     g.register("readfile", |path: &str| {
-        NilError(std::fs::read(path).map(serde_bytes::ByteBuf::from))
+        NilError(std::fs::read(path).map(LuaBytes))
     })?;
     g.set(
         "__file__",

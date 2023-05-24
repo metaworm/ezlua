@@ -218,7 +218,7 @@ fn push_check() {
             let t2 = s.create_table(0, 0)?;
             t2.set("field", 1234)?;
             result.set("t2", t2)?;
-            Ok(result)
+            result.to_lua(s)
         }
     }
 
@@ -247,7 +247,9 @@ fn stack_balance() {
     let foo = s.new_function("return ...", None).unwrap();
     for i in 0..20 {
         println!("top{i} {}", s.stack_top());
-        let (_, _, s3) = foo.pcall::<_, (Value, Value, ValRef)>((1, 2, "3")).unwrap();
+        let (_, _, s3) = foo
+            .pcall::<_, (LuaValue, LuaValue, ValRef)>((1, 2, "3"))
+            .unwrap();
         assert_eq!(s3.to_str().unwrap(), "3");
     }
 }
