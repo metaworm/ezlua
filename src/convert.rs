@@ -23,21 +23,35 @@ use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 use core::{fmt::Debug, marker::Tuple};
 
+#[cfg(feature = "std")]
+use std::{collections::HashMap, hash::Hash};
+
 pub type Index = i32;
 pub type MetatableKey = fn(&ValRef) -> Result<()>;
 
 /// Represents a closure will be wrapped as a lua C function (cclosure)
 pub struct RustClosure<THIS, T, O, F>(pub F, pub(crate) PhantomData<(THIS, T, O)>);
 
+#[cfg(feature = "serde_bytes")]
 impl ToLua for &serde_bytes::Bytes {
     fn to_lua<'a>(self, s: &'a State) -> Result<ValRef<'a>> {
         ToLua::to_lua(self.as_ref(), s)
     }
 }
 
+#[cfg(feature = "serde_bytes")]
 impl ToLua for serde_bytes::ByteBuf {
     fn to_lua<'a>(self, s: &'a State) -> Result<ValRef<'a>> {
         ToLua::to_lua(self.as_ref(), s)
+    }
+}
+
+#[cfg(feature = "serde_bytes")]
+impl FromLua<'_> for serde_bytes::ByteBuf {
+    fn from_index(s: &State, i: Index) -> Option<Self> {
+        Some(serde_bytes::ByteBuf::from(
+            <&[u8] as FromLua>::from_index(s, i)?.to_vec(),
+        ))
     }
 }
 
@@ -145,7 +159,7 @@ impl<'a, THIS: 'a, T: 'a, O: 'a, F: LuaMethod<'a, THIS, T, O>> ToLua
             s.push_userdatauv(this, 0)?;
             let mt = s.create_table(0, 1)?;
             mt.set("__gc", __gc::<Self> as CFunction)?;
-            mt.ensure_top();
+            mt.0.ensure_top();
             s.set_metatable(-2);
         };
         s.push_cclosure(Some(F::wrapper), 1);
@@ -190,7 +204,7 @@ impl<T: ToLua> ToLua for Option<T> {
 }
 
 /// Trait for types that can be taken from the Lua stack.
-pub trait FromLua<'a>: Sized + 'a {
+pub trait FromLua<'a>: Sized {
     const TYPE_NAME: &'static str = core::any::type_name::<Self>();
 
     fn from_index(s: &'a State, i: Index) -> Option<Self> {
@@ -215,7 +229,7 @@ pub trait FromLua<'a>: Sized + 'a {
 impl<'a> FromLua<'a> for ValRef<'a> {
     #[inline(always)]
     fn from_index(s: &'a State, i: Index) -> Option<Self> {
-        s.val(i).check_valied()
+        s.val(i).check_valid()
     }
 }
 
@@ -241,18 +255,11 @@ impl<'a> FromLua<'a> for &'a str {
     }
 }
 
-impl FromLua<'_> for Vec<u8> {
-    #[inline(always)]
-    fn from_index(s: &State, i: Index) -> Option<Vec<u8>> {
-        s.to_bytes(i).map(ToOwned::to_owned)
-    }
-}
-
 impl<'a> FromLua<'a> for &'a [u8] {
     #[inline(always)]
     fn from_index(s: &'a State, i: Index) -> Option<&'a [u8]> {
         s.to_safe_bytes(i).or_else(|| unsafe {
-            let p = s.to_userdata(i);
+            let p: *mut core::ffi::c_void = s.to_userdata(i);
             if p.is_null() {
                 None
             } else {
@@ -262,6 +269,35 @@ impl<'a> FromLua<'a> for &'a [u8] {
                 ))
             }
         })
+    }
+}
+
+impl<'a, V: FromLua<'a> + 'static> FromLua<'a> for Vec<V> {
+    fn from_lua(s: &'a State, val: ValRef<'a>) -> Option<Self> {
+        val.check_type(Type::Table).ok()?;
+
+        let mut result = Vec::new();
+        for i in 1..=val.raw_len() {
+            result.push(val.raw_geti(i as i64).cast::<V>()?);
+        }
+
+        Some(result)
+    }
+}
+
+#[cfg(feature = "std")]
+impl<'a, K: FromLua<'a> + Eq + Hash + 'static, V: FromLua<'a> + 'static> FromLua<'a>
+    for HashMap<K, V>
+{
+    fn from_lua(s: &'a State, val: ValRef<'a>) -> Option<Self> {
+        val.check_type(Type::Table).ok()?;
+
+        let mut result = HashMap::new();
+        for (k, v) in val.iter().ok()? {
+            result.insert(k.cast::<K>()?, v.cast::<V>()?);
+        }
+
+        Some(result)
     }
 }
 
@@ -444,7 +480,7 @@ macro_rules! impl_luafn {
             T: 'a,
             THIS: Deref<Target = T> + ?Sized + 'a,
             RET: ToLuaMulti + 'a,
-            $($x: FromLua<'a>,)*
+            $($x: FromLua<'a> + 'a,)*
         > LuaMethod<'a, (THIS, &'a T), ($($x,)*), RET> for FN
             where THIS: FromLua<'a>,
         {
@@ -464,7 +500,7 @@ macro_rules! impl_luafn {
             T: ?Sized + 'a,
             THIS: UserData + Deref<Target = T> + 'a,
             RET: ToLuaMulti + 'a,
-            $($x: FromLua<'a>,)*
+            $($x: FromLua<'a> + 'a,)*
         > LuaMethod<'a, (THIS, &'a T, &'a T), ($($x,)*), RET> for FN
             where <THIS::Trans as UserDataTrans<THIS>>::Read<'a>: Deref<Target = THIS> + FromLua<'a> + 'a,
         {
@@ -484,7 +520,7 @@ macro_rules! impl_luafn {
             T: 'a,
             THIS: Deref<Target = T> + ?Sized + 'a,
             RET: ToLuaMulti + 'a,
-            $($x: FromLua<'a>,)*
+            $($x: FromLua<'a> + 'a,)*
         > LuaMethod<'a, (THIS, &'a T), (&'a State, $($x,)*), RET> for FN
             where THIS: FromLua<'a>,
         {
@@ -504,7 +540,7 @@ macro_rules! impl_luafn {
             T: 'a,
             THIS: DerefMut<Target = T> + 'a,
             RET: ToLuaMulti + 'a,
-            $($x: FromLua<'a>,)*
+            $($x: FromLua<'a> + 'a,)*
         > LuaMethod<'a, (THIS, &'a mut T), ($($x,)*), RET> for FN
             where THIS: FromLua<'a>,
         {
@@ -524,7 +560,7 @@ macro_rules! impl_luafn {
             T: ?Sized + 'a,
             THIS: UserData + DerefMut<Target = T> + 'a,
             RET: ToLuaMulti + 'a,
-            $($x: FromLua<'a>,)*
+            $($x: FromLua<'a> + 'a,)*
         > LuaMethod<'a, (THIS, &'a mut T, &'a mut T), ($($x,)*), RET> for FN
             where <THIS::Trans as UserDataTrans<THIS>>::Read<'a>: DerefMut<Target = THIS> + FromLua<'a> + 'a,
         {
@@ -544,7 +580,7 @@ macro_rules! impl_luafn {
             T: 'a,
             THIS: DerefMut<Target = T> + 'a,
             RET: ToLuaMulti + 'a,
-            $($x: FromLua<'a>,)*
+            $($x: FromLua<'a> + 'a,)*
         > LuaMethod<'a, (THIS, &'a mut T), (&'a State, $($x,)*), RET> for FN
             where THIS: FromLua<'a>,
         {
@@ -739,7 +775,7 @@ macro_rules! impl_closure {
         >(
             &'l self,
             f: FN,
-        ) -> Result<ValRef<'l>> {
+        ) -> Result<Function<'l>> {
             self.to_closure_wrapper(move |s: &'l State| Result::Ok(f(s, $($x::check(s, $i + 1)?,)*)), 0)
         }
     );
@@ -786,7 +822,7 @@ impl State {
         &'l self,
         iter: I,
         refs: [REF; C],
-    ) -> Result<ValRef> {
+    ) -> Result<Function<'l>> {
         let iter = RefCell::new(iter);
         let val = self.to_closure_wrapper(
             move |s| iter.try_borrow_mut().map(|mut iter| iter.next().ok_or(())),
@@ -813,7 +849,7 @@ impl State {
         iter: I,
         map: M,
         refs: [REF; C],
-    ) -> Result<ValRef> {
+    ) -> Result<Function> {
         let iter = RefCell::new(iter);
         let val = self.to_closure_wrapper(
             move |s| {
@@ -858,7 +894,7 @@ impl State {
     >(
         &'l self,
         fun: F,
-    ) -> Result<ValRef> {
+    ) -> Result<Function<'l>> {
         self.to_closure_wrapper(
             move |s: &'l State| Result::Ok(fun.call(A::from_lua(s, 1)?)),
             0,
@@ -882,19 +918,19 @@ impl State {
         &'l self,
         f: F,
         extra_upval: usize,
-    ) -> Result<ValRef> {
+    ) -> Result<Function> {
         if core::mem::size_of::<F>() == 0 {
             self.push_cclosure(Some(closure_wrapper::<'l, R, F>), 0);
         } else {
             self.push_userdatauv(f, 0)?;
             let mt = self.create_table(0, 1)?;
             mt.set("__gc", __gc::<F> as CFunction)?;
-            mt.ensure_top();
+            mt.0.ensure_top();
             self.set_metatable(-2);
             self.set_top(self.get_top() + extra_upval as i32);
             self.push_cclosure(Some(closure_wrapper::<'l, R, F>), 1 + extra_upval as i32);
         }
-        Ok(self.top_val())
+        Ok(self.top_val().into())
     }
 }
 
