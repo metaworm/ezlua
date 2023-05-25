@@ -27,7 +27,7 @@ use core::{fmt::Debug, marker::Tuple};
 use std::{collections::HashMap, hash::Hash};
 
 pub type Index = i32;
-pub type MetatableKey = fn(&ValRef) -> Result<()>;
+pub type MetatableKey = fn(&Table) -> Result<()>;
 
 /// Represents a closure will be wrapped as a lua C function (cclosure)
 pub struct RustClosure<THIS, T, O, F>(pub F, pub(crate) PhantomData<(THIS, T, O)>);
@@ -274,11 +274,11 @@ impl<'a> FromLua<'a> for &'a [u8] {
 
 impl<'a, V: FromLua<'a> + 'static> FromLua<'a> for Vec<V> {
     fn from_lua(s: &'a State, val: ValRef<'a>) -> Option<Self> {
-        val.check_type(Type::Table).ok()?;
+        let t = val.as_table()?;
 
         let mut result = Vec::new();
-        for i in 1..=val.raw_len() {
-            result.push(val.raw_geti(i as i64).cast::<V>()?);
+        for i in 1..=t.raw_len() {
+            result.push(t.raw_geti(i as i64).cast::<V>()?);
         }
 
         Some(result)
@@ -290,10 +290,10 @@ impl<'a, K: FromLua<'a> + Eq + Hash + 'static, V: FromLua<'a> + 'static> FromLua
     for HashMap<K, V>
 {
     fn from_lua(s: &'a State, val: ValRef<'a>) -> Option<Self> {
-        val.check_type(Type::Table).ok()?;
+        let t = val.as_table()?;
 
         let mut result = HashMap::new();
-        for (k, v) in val.iter().ok()? {
+        for (k, v) in t.iter().ok()? {
             result.insert(k.cast::<K>()?, v.cast::<V>()?);
         }
 
@@ -373,7 +373,14 @@ pub trait ToLuaMulti: Sized {
     }
 }
 
+#[derive(Debug)]
 pub struct MultiRet<T>(pub Vec<T>);
+
+impl<T> Default for MultiRet<T> {
+    fn default() -> Self {
+        Self(vec![])
+    }
+}
 
 impl<T: ToLua> ToLuaMulti for MultiRet<T> {
     fn value_count(&self) -> Option<usize> {
@@ -771,7 +778,7 @@ macro_rules! impl_closure {
         pub fn $name<'l,
             RET: ToLuaMulti + 'l,
             $($x: FromLua<'l>,)*
-            FN: Fn(&'l State, $($x,)*) -> RET,
+            FN: Fn(&'l State, $($x,)*) -> RET + 'static,
         >(
             &'l self,
             f: FN,
@@ -781,13 +788,14 @@ macro_rules! impl_closure {
     );
 }
 
-impl<'l> ValRef<'l> {
+impl<'l> Table<'l> {
     #[inline(always)]
     pub fn register<
+        'a,
         K: ToLua,
-        A: FromLuaMulti<'l> + Tuple,
-        R: ToLuaMulti + 'l,
-        F: Fn<A, Output = R>,
+        A: FromLuaMulti<'a> + Tuple,
+        R: ToLuaMulti + 'a,
+        F: Fn<A, Output = R> + 'static,
     >(
         &self,
         k: K,
@@ -819,10 +827,10 @@ impl State {
         REF: ToLua,
         const C: usize,
     >(
-        &'l self,
+        &self,
         iter: I,
         refs: [REF; C],
-    ) -> Result<Function<'l>> {
+    ) -> Result<Function<'_>> {
         let iter = RefCell::new(iter);
         let val = self.to_closure_wrapper(
             move |s| iter.try_borrow_mut().map(|mut iter| iter.next().ok_or(())),
@@ -890,11 +898,11 @@ impl State {
         'l,
         A: FromLuaMulti<'l> + Tuple,
         R: ToLuaMulti + 'l,
-        F: Fn<A, Output = R>,
+        F: Fn<A, Output = R> + 'static,
     >(
-        &'l self,
+        &self,
         fun: F,
-    ) -> Result<Function<'l>> {
+    ) -> Result<Function<'_>> {
         self.to_closure_wrapper(
             move |s: &'l State| Result::Ok(fun.call(A::from_lua(s, 1)?)),
             0,
@@ -915,10 +923,10 @@ impl State {
 
     #[inline(always)]
     fn to_closure_wrapper<'l, R: ToLuaMulti + 'l, F: Fn(&'l State) -> R>(
-        &'l self,
+        &self,
         f: F,
         extra_upval: usize,
-    ) -> Result<Function> {
+    ) -> Result<Function<'_>> {
         if core::mem::size_of::<F>() == 0 {
             self.push_cclosure(Some(closure_wrapper::<'l, R, F>), 0);
         } else {
@@ -930,7 +938,7 @@ impl State {
             self.set_top(self.get_top() + extra_upval as i32);
             self.push_cclosure(Some(closure_wrapper::<'l, R, F>), 1 + extra_upval as i32);
         }
-        Ok(self.top_val().into())
+        Ok(self.top_val().try_into().unwrap())
     }
 }
 

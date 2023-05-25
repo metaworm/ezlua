@@ -143,7 +143,7 @@ impl<'a> ValRef<'a> {
 }
 
 struct LuaSerializer<'a>(&'a State);
-struct LuaTableSerializer<'a>(ValRef<'a>, Option<ValRef<'a>>);
+struct LuaTableSerializer<'a>(LuaTable<'a>, Option<ValRef<'a>>);
 
 impl<'a> SerializeSeq for LuaTableSerializer<'a> {
     type Ok = ValRef<'a>;
@@ -158,7 +158,7 @@ impl<'a> SerializeSeq for LuaTableSerializer<'a> {
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        Ok(self.0)
+        Ok(self.0.into())
     }
 }
 
@@ -212,11 +212,11 @@ impl<'a> SerializeTupleVariant for LuaTableSerializer<'a> {
 
 impl<'a> LuaTableSerializer<'a> {
     fn begin(s: &'a State, len: usize) -> LuaResult<Self> {
-        s.create_table(0, len as _).map(|val| Self(val.0, None))
+        s.create_table(0, len as _).map(|val| Self(val, None))
     }
 
     fn begin_array(s: &'a State, len: usize) -> LuaResult<Self> {
-        s.create_table(len as _, 0).map(|val| Self(val.0, None))
+        s.create_table(len as _, 0).map(|val| Self(val, None))
     }
 }
 
@@ -273,7 +273,7 @@ impl<'a> SerializeMap for LuaTableSerializer<'a> {
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        Ok(self.0)
+        Ok(self.0.into())
     }
 }
 
@@ -508,14 +508,17 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
             }
             Type::String => self.deserialize_str(visitor),
             Type::Boolean => self.deserialize_bool(visitor),
-            Type::Table => {
-                if self.raw_len() > 0 {
-                    self.deserialize_seq(visitor)
+            _ => {
+                if let Some(t) = self.as_table() {
+                    if t.raw_len() > 0 {
+                        self.deserialize_seq(visitor)
+                    } else {
+                        self.deserialize_map(visitor)
+                    }
                 } else {
-                    self.deserialize_map(visitor)
+                    visitor.visit_unit()
                 }
             }
-            _ => visitor.visit_unit(),
         }
     }
 
@@ -524,7 +527,7 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
     where
         V: Visitor<'de>,
     {
-        visitor.visit_bool(self.cast().unwrap())
+        visitor.visit_bool(self.cast().ok_or(DesErr::ExpectedBoolean)?)
     }
 
     /// Hint that the `Deserialize` type is expecting an `i8` value.
@@ -741,7 +744,7 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
     where
         V: Visitor<'de>,
     {
-        struct SeqDes<'a, 'b>(&'a ValRef<'b>, usize, usize);
+        struct SeqDes<'a, 'b>(&'a LuaTable<'b>, usize, usize);
 
         impl<'de> SeqAccess<'de> for SeqDes<'de, '_> {
             type Error = DesErr;
@@ -767,9 +770,9 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
             }
         }
 
-        if self.is_table() {
-            let len = self.raw_len();
-            visitor.visit_seq(SeqDes(&self, 1, len))
+        if let Some(t) = self.as_table() {
+            let len = t.raw_len();
+            visitor.visit_seq(SeqDes(t, 1, len))
         } else {
             Err(DesErr::ExpectedArray)
         }
@@ -1030,7 +1033,6 @@ impl Serialize for ValRef<'_> {
                     }
                 }
             }
-            // LUA_TSTRING => serializer.serialize_str(self.to_str(self.index).unwrap_or_default()),
             Type::Number => {
                 if self.is_integer() {
                     serializer.serialize_i64(self.cast::<i64>().unwrap_or_default())
@@ -1041,33 +1043,36 @@ impl Serialize for ValRef<'_> {
             // TODO: serde option
             Type::Function => serializer.serialize_bool(true),
             Type::Boolean => serializer.serialize_bool(self.to_bool()),
-            Type::Table => {
-                let len = self.raw_len() as usize;
-                self.state.check_stack(3).map_err(Error::custom)?;
+            _ => {
+                if let Some(t) = self.as_table() {
+                    let len = t.raw_len() as usize;
+                    t.state.check_stack(3).map_err(Error::custom)?;
 
-                if len > 0 {
-                    let mut seq = serializer.serialize_seq(Some(len))?;
-                    for i in 1..=len {
-                        seq.serialize_element(&self.raw_geti(i as lua_Integer))?;
-                    }
-                    seq.end()
-                } else {
-                    // get count of entries in the table
-                    let count = self.entry_count();
-
-                    // serialize empty table as empty array
-                    if count == 0 {
-                        serializer.serialize_seq(Some(len))?.end()
-                    } else {
-                        let mut map = serializer.serialize_map(Some(count))?;
-                        for (k, v) in self.iter().map_err(Error::custom)? {
-                            map.serialize_entry(&k, &v)?;
+                    if len > 0 {
+                        let mut seq = serializer.serialize_seq(Some(len))?;
+                        for i in 1..=len {
+                            seq.serialize_element(&t.raw_geti(i as lua_Integer))?;
                         }
-                        map.end()
+                        seq.end()
+                    } else {
+                        // get count of entries in the table
+                        let count = t.entry_count();
+
+                        // serialize empty table as empty array
+                        if count == 0 {
+                            serializer.serialize_seq(Some(len))?.end()
+                        } else {
+                            let mut map = serializer.serialize_map(Some(count))?;
+                            for (k, v) in self.iter().map_err(Error::custom)? {
+                                map.serialize_entry(&k, &v)?;
+                            }
+                            map.end()
+                        }
                     }
+                } else {
+                    serializer.serialize_none()
                 }
             }
-            _ => serializer.serialize_none(),
         }
     }
 }

@@ -2,12 +2,11 @@
 
 use alloc::string::ToString;
 use alloc::{boxed::Box, vec::Vec};
-use core::mem;
 
 use crate::{
     convert::{FromLua, Index, ToLua, ToLuaMulti},
     error::Result,
-    ffi::{self, lua_State, CFunction},
+    ffi,
     luaapi::{Reference, UnsafeLuaApi},
     prelude::{ArcLuaInner, LuaResult, LuaType},
     state::State,
@@ -153,32 +152,10 @@ impl<T: ToLuaMulti + 'static> StaticIter<'static, T> {
     }
 }
 
-impl<'a, T: ToLuaMulti + 'a> StaticIter<'a, T> {
-    unsafe extern "C" fn lua_fn(l: *mut lua_State) -> i32 {
-        let s = State::from_raw_state(l);
-        let p = s.to_userdata(ffi::lua_upvalueindex(1));
-        let iter: &mut StaticIter<'a, T> = mem::transmute(p);
-        if let Some(v) = iter.0.next() {
-            s.return_result(v) as _
-        } else {
-            0
-        }
+impl<T: ToLuaMulti> ToLua for StaticIter<'static, T> {
+    fn to_lua<'a>(self, s: &'a State) -> LuaResult<ValRef<'a>> {
+        unsafe { s.new_iter(self.0, [(); 0]) }.map(Into::into)
     }
-}
-
-impl<'a, T: ToLuaMulti + 'a> ToLua for StaticIter<'a, T> {
-    const __PUSH: Option<fn(Self, &State) -> Result<()>> = Some(|this, s| {
-        s.push_userdatauv(this, 0)?;
-        let mt = s.create_table(0, 1)?;
-        mt.set(
-            "__gc",
-            crate::convert::__gc::<StaticIter<'static, usize>> as CFunction,
-        )?;
-        mt.0.ensure_top();
-        s.set_metatable(-2);
-        s.push_cclosure(Some(Self::lua_fn), 1);
-        Ok(())
-    });
 }
 
 /// Represents results which are already pushed to the stack

@@ -78,13 +78,14 @@ impl<T> UserDataTrans<T> for RefCell<T> {
 
 impl<'a, T: UserData<Trans = RefCell<T>>> FromLua<'a> for &'a RefCell<T> {
     fn from_lua(s: &'a State, val: ValRef<'a>) -> Option<Self> {
-        LuaUserData::from(val).userdata_ref::<T>()
+        LuaUserData::try_from(val).ok()?.userdata_ref::<T>()
     }
 }
 
 impl<'a, T: UserData<Trans = RefCell<T>>> FromLua<'a> for Ref<'a, T> {
     fn from_lua(s: &'a State, val: ValRef<'a>) -> Option<Self> {
-        LuaUserData::from(val)
+        LuaUserData::try_from(val)
+            .ok()?
             .userdata_ref::<T>()?
             .try_borrow()
             .ok()
@@ -93,7 +94,8 @@ impl<'a, T: UserData<Trans = RefCell<T>>> FromLua<'a> for Ref<'a, T> {
 
 impl<'a, T: UserData<Trans = RefCell<T>>> FromLua<'a> for RefMut<'a, T> {
     fn from_lua(s: &'a State, val: ValRef<'a>) -> Option<Self> {
-        LuaUserData::from(val)
+        LuaUserData::try_from(val)
+            .ok()?
             .userdata_ref::<T>()?
             .try_borrow_mut()
             .ok()
@@ -402,7 +404,7 @@ unsafe extern "C" fn __len(l: *mut lua_State) -> c_int {
 
 fn init_userdata<T: UserData>(s: &State) -> Result<()> {
     let ud = s.val(-1);
-    T::init_userdata(s, &ud.into())
+    T::init_userdata(s, &ud.try_into()?)
 }
 
 impl<T: UserData + 'static> ToLua for T {
@@ -456,7 +458,7 @@ impl State {
     #[inline(always)]
     pub fn register_usertype<U: UserData>(&self) -> Result<Table> {
         self.get_or_init_metatable(U::INIT)?;
-        Ok(self.top_val().into())
+        Ok(self.top_val().try_into().unwrap())
     }
 
     /// Create userdata
@@ -473,7 +475,7 @@ impl State {
     ) -> Result<LuaUserData> {
         let mut n = data.uservalue_count(self);
         self.push_udatauv(data, N as _)?;
-        let ud = LuaUserData::from(self.top_val());
+        let ud = LuaUserData::try_from(self.top_val()).unwrap();
         for r in refs.into_iter() {
             n += 1;
             ud.set_iuservalue(n, r)?;
@@ -564,10 +566,10 @@ impl State {
 }
 
 #[derive(Debug)]
-pub struct MethodRegistry<'a, U: 'a, R, W>(pub &'a ValRef<'a>, PhantomData<(U, R, W)>);
+pub struct MethodRegistry<'a, U: 'a, R, W>(pub &'a Table<'a>, PhantomData<(U, R, W)>);
 
 impl<'a, U: 'a, R, W> Deref for MethodRegistry<'a, U, R, W> {
-    type Target = ValRef<'a>;
+    type Target = Table<'a>;
 
     fn deref(&self) -> &Self::Target {
         self.0
@@ -611,7 +613,7 @@ impl<'a, U: 'a + ?Sized, R: 'a, W> MethodRegistry<'a, &U, R, W> {
 }
 
 impl<'a, U: 'a, R: 'a, W> MethodRegistry<'a, U, R, W> {
-    pub fn new(mt: &'a ValRef<'a>) -> Self {
+    pub fn new(mt: &'a Table<'a>) -> Self {
         Self(mt, PhantomData)
     }
 

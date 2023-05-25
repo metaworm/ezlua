@@ -140,22 +140,9 @@ impl<'a> ValRef<'a> {
     }
 
     #[inline]
-    pub fn raw_geti(&self, i: impl Into<lua_Integer>) -> ValRef<'a> {
-        self.state.raw_geti(self.index, i.into());
-        self.state.top_val()
-    }
-
-    #[inline]
     pub fn geti(&self, i: impl Into<lua_Integer>) -> ValRef<'a> {
         self.state.geti(self.index, i.into());
         self.state.top_val()
-    }
-
-    #[inline]
-    pub fn raw_seti<V: ToLua>(&self, i: impl Into<lua_Integer>, v: V) -> Result<()> {
-        self.state.push(v)?;
-        self.state.raw_seti(self.index, i.into());
-        Ok(())
     }
 
     #[inline]
@@ -168,44 +155,6 @@ impl<'a> ValRef<'a> {
     pub fn getf(&self, k: &CStr) -> ValRef {
         self.state.get_field(self.index, k);
         self.state.top_val()
-    }
-
-    #[inline]
-    pub fn raw_get<K: ToLua>(&self, k: K) -> Result<ValRef<'a>> {
-        self.state.push(k)?;
-        self.state.raw_get(self.index);
-        Ok(self.state.top_val())
-    }
-
-    #[inline]
-    pub fn raw_set<K: ToLua, V: ToLua>(&self, k: K, v: V) -> Result<()> {
-        self.state.push(k)?;
-        self.state.push(v)?;
-        self.state.raw_set(self.index);
-        Ok(())
-    }
-
-    #[inline]
-    pub fn raw_len(&self) -> usize {
-        self.state.raw_len(self.index)
-    }
-
-    #[inline(always)]
-    pub fn raw_insert<V: ToLua>(&self, i: usize, val: V) -> Result<()> {
-        self.raw_move_vals(i)?;
-        self.raw_seti(i as i64, val)
-    }
-
-    pub fn raw_move_vals(&self, i: usize) -> Result<()> {
-        for i in i..=self.raw_len() {
-            self.raw_seti((i + 1) as i64, self.raw_get(i as i64)?)?;
-        }
-        Ok(())
-    }
-
-    #[inline(always)]
-    pub fn push<V: ToLua>(&self, val: V) -> Result<()> {
-        self.raw_seti((self.raw_len() + 1) as i64, val)
     }
 
     #[inline]
@@ -280,17 +229,16 @@ impl<'a> ValRef<'a> {
         self.pcall(args)
     }
 
-    pub fn metatable(&self) -> Result<Option<ValRef<'a>>> {
+    pub fn metatable(&self) -> Result<Option<Table<'a>>> {
         Ok(if self.state.get_metatable(self.index) {
-            Some(self.state.top_val())
+            Some(self.state.top_val().try_into().unwrap())
         } else {
             None
         })
     }
 
-    pub fn set_metatable(&self, t: ValRef) -> Result<()> {
-        t.check_type(Type::Table)?;
-        self.state.pushval(t);
+    pub fn set_metatable(&self, t: Table) -> Result<()> {
+        self.state.pushval(t.0);
         self.state.set_metatable(self.index);
         Ok(())
     }
@@ -318,18 +266,18 @@ impl<'a> ValRef<'a> {
             Type::Nil => Value::Nil,
             Type::Number => {
                 if self.is_integer() {
-                    Value::Integer(self.cast()?)
+                    Value::Integer(self.cast().unwrap())
                 } else {
-                    Value::Number(self.cast()?)
+                    Value::Number(self.cast().unwrap())
                 }
             }
-            Type::String => Value::String(self),
             Type::Boolean => Value::Bool(self.to_bool()),
             Type::LightUserdata => Value::LightUserdata(self.state.to_userdata(self.index)),
-            Type::Table => Value::Table(self),
-            Type::Function => Value::Function(self),
-            Type::Userdata => Value::Userdata(self),
-            Type::Thread => Value::Thread(self),
+            Type::String => Value::String(LuaString(self)),
+            Type::Table => Value::Table(Table(self)),
+            Type::Function => Value::Function(Function(self)),
+            Type::Userdata => Value::Userdata(LuaUserData(self)),
+            Type::Thread => Value::Thread(LuaThread(self)),
         })
     }
 
@@ -349,24 +297,14 @@ impl<'a> ValRef<'a> {
                     Value::Number(self.cast().unwrap())
                 }
             }
-            Type::String => Value::String(self),
             Type::Boolean => Value::Bool(self.to_bool()),
             Type::LightUserdata => Value::LightUserdata(self.state.to_userdata(self.index)),
-            Type::Table => Value::Table(self),
-            Type::Function => Value::Function(self),
-            Type::Userdata => Value::Userdata(self),
-            Type::Thread => Value::Thread(self),
+            Type::String => Value::String(LuaString(self)),
+            Type::Table => Value::Table(Table(self)),
+            Type::Function => Value::Function(Function(self)),
+            Type::Userdata => Value::Userdata(LuaUserData(self)),
+            Type::Thread => Value::Thread(LuaThread(self)),
         }
-    }
-
-    pub fn entry_count(&self) -> usize {
-        let mut count = 0usize;
-        self.state.push_nil();
-        while self.state.next(self.index) {
-            count += 1;
-            self.state.pop(1);
-        }
-        count
     }
 
     pub fn iter<'t>(&'t self) -> Result<ValIter<'a, &'t Self>> {
@@ -449,12 +387,12 @@ pub enum Value<'a> {
     Bool(bool),
     Integer(lua_Integer),
     Number(lua_Number),
-    String(ValRef<'a>),
     LightUserdata(*mut c_void),
-    Table(ValRef<'a>),
-    Function(ValRef<'a>),
-    Userdata(ValRef<'a>),
-    Thread(ValRef<'a>),
+    String(LuaString<'a>),
+    Table(Table<'a>),
+    Function(Function<'a>),
+    Userdata(LuaUserData<'a>),
+    Thread(LuaThread<'a>),
 }
 
 #[cfg(feature = "unsafe_send_sync")]
@@ -484,11 +422,30 @@ pub struct LuaThread<'l>(pub(crate) ValRef<'l>);
 pub struct LuaUserData<'l>(pub(crate) ValRef<'l>);
 
 macro_rules! impl_wrap {
-    ($t:ty, $lt:expr) => {
-        impl<'a> From<ValRef<'a>> for $t {
-            fn from(val: ValRef<'a>) -> Self {
-                assert_eq!(val.type_of(), $lt);
-                Self(val)
+    ($t:ty, $lt:expr, $m:ident) => {
+        impl<'a> TryFrom<ValRef<'a>> for $t {
+            type Error = crate::error::Error;
+
+            fn try_from(val: ValRef<'a>) -> Result<Self> {
+                let t = val.type_of();
+                if t == $lt {
+                    Ok(Self(val))
+                } else {
+                    Err(Error::TypeNotMatch(t))
+                }
+            }
+        }
+
+        // impl<'a> From<ValRef<'a>> for $t {
+        //     fn from(val: ValRef<'a>) -> Self {
+        //         assert_eq!(val.type_of(), $lt);
+        //         Self(val)
+        //     }
+        // }
+
+        impl<'a> Into<ValRef<'a>> for $t {
+            fn into(self) -> ValRef<'a> {
+                self.0
             }
         }
 
@@ -504,14 +461,87 @@ macro_rules! impl_wrap {
                 (val.type_of() == $lt).then_some(Self(val))
             }
         }
+
+        impl<'a> ValRef<'a> {
+            pub fn $m(&self) -> Option<&$t> {
+                if self.type_of() == $lt {
+                    unsafe { (self as *const _ as *const $t).as_ref() }
+                } else {
+                    None
+                }
+            }
+        }
     };
 }
 
-impl_wrap!(Table<'a>, Type::Table);
-impl_wrap!(Function<'a>, Type::Function);
-impl_wrap!(LuaString<'a>, Type::String);
-impl_wrap!(LuaThread<'a>, Type::Thread);
-impl_wrap!(LuaUserData<'a>, Type::Userdata);
+impl_wrap!(Table<'a>, Type::Table, as_table);
+impl_wrap!(Function<'a>, Type::Function, as_function);
+impl_wrap!(LuaString<'a>, Type::String, as_string);
+impl_wrap!(LuaThread<'a>, Type::Thread, as_thread);
+impl_wrap!(LuaUserData<'a>, Type::Userdata, as_userdata);
+
+impl<'a> Table<'a> {
+    pub fn entry_count(&self) -> usize {
+        let mut count = 0usize;
+        self.state.push_nil();
+        while self.state.next(self.index) {
+            count += 1;
+            self.state.pop(1);
+        }
+        count
+    }
+
+    #[inline]
+    pub fn raw_geti(&self, i: impl Into<lua_Integer>) -> ValRef<'a> {
+        self.state.raw_geti(self.index, i.into());
+        self.state.top_val()
+    }
+
+    #[inline]
+    pub fn raw_seti<V: ToLua>(&self, i: impl Into<lua_Integer>, v: V) -> Result<()> {
+        self.state.push(v)?;
+        self.state.raw_seti(self.index, i.into());
+        Ok(())
+    }
+
+    #[inline]
+    pub fn raw_get<K: ToLua>(&self, k: K) -> Result<ValRef<'a>> {
+        self.state.push(k)?;
+        self.state.raw_get(self.index);
+        Ok(self.state.top_val())
+    }
+
+    #[inline]
+    pub fn raw_set<K: ToLua, V: ToLua>(&self, k: K, v: V) -> Result<()> {
+        self.state.push(k)?;
+        self.state.push(v)?;
+        self.state.raw_set(self.index);
+        Ok(())
+    }
+
+    #[inline]
+    pub fn raw_len(&self) -> usize {
+        self.state.raw_len(self.index)
+    }
+
+    #[inline(always)]
+    pub fn raw_insert<V: ToLua>(&self, i: usize, val: V) -> Result<()> {
+        self.raw_move_vals(i)?;
+        self.raw_seti(i as i64, val)
+    }
+
+    pub fn raw_move_vals(&self, i: usize) -> Result<()> {
+        for i in i..=self.raw_len() {
+            self.raw_seti((i + 1) as i64, self.raw_get(i as i64)?)?;
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    pub fn push<V: ToLua>(&self, val: V) -> Result<()> {
+        self.raw_seti((self.raw_len() + 1) as i64, val)
+    }
+}
 
 impl<'a> Function<'a> {
     #[inline]

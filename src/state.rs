@@ -185,11 +185,11 @@ pub mod unsafe_impl {
         }
 
         #[inline(always)]
-        pub fn registry(&self) -> ValRef {
-            ValRef {
+        pub fn registry(&self) -> Table {
+            Table(ValRef {
                 state: self,
                 index: LUA_REGISTRYINDEX,
-            }
+            })
         }
 
         #[inline(always)]
@@ -207,7 +207,7 @@ pub mod unsafe_impl {
         #[inline(always)]
         pub fn create_table(&self, narr: c_int, nrec: c_int) -> Result<Table> {
             UnsafeLuaApi::create_table(self, narr, nrec);
-            Ok(self.top_val().into())
+            Ok(self.top_val().try_into().unwrap())
         }
 
         /// Create a table
@@ -220,7 +220,7 @@ pub mod unsafe_impl {
         #[inline]
         pub fn new_string<S: AsRef<[u8]>>(&self, s: S) -> Result<LuaString> {
             self.push_bytes(s.as_ref());
-            Ok(self.top_val().into())
+            Ok(self.top_val().try_into().unwrap())
         }
 
         /// Create function from script string or bytecode
@@ -235,7 +235,7 @@ pub mod unsafe_impl {
             let guard = self.stack_guard();
             self.statuscode_to_error(self.load_buffer(s, name))?;
             core::mem::forget(guard);
-            Ok(self.top_val().into())
+            Ok(self.top_val().try_into().unwrap())
         }
 
         #[cfg(feature = "std")]
@@ -285,9 +285,9 @@ pub mod unsafe_impl {
         }
 
         #[inline(always)]
-        pub fn global(&self) -> ValRef {
+        pub fn global(&self) -> Table {
             self.raw_geti(LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
-            self.top_val()
+            self.top_val().try_into().unwrap()
         }
 
         /// [-0, +1, -]
@@ -468,11 +468,11 @@ pub mod unsafe_impl {
                 Value::Integer(i) => self.push_integer(i),
                 Value::Number(n) => self.push_number(n),
                 Value::LightUserdata(ud) => self.push_light_userdata(ud),
-                Value::String(r)
-                | Value::Table(r)
-                | Value::Function(r)
-                | Value::Userdata(r)
-                | Value::Thread(r) => self.pushval(r),
+                Value::String(r) => self.pushval(r.0),
+                Value::Table(r) => self.pushval(r.0),
+                Value::Function(r) => self.pushval(r.0),
+                Value::Userdata(r) => self.pushval(r.0),
+                Value::Thread(r) => self.pushval(r.0),
             }
         }
 

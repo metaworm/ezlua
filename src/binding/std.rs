@@ -305,7 +305,7 @@ pub fn extend_os(s: &LuaState) -> Result<()> {
     use std::fs::FileType;
 
     let g = s.global();
-    let os = g.get("os")?;
+    let os: LuaTable = g.get("os")?.try_into()?;
     os.setf(crate::cstr!("path"), path::init(s)?)?;
 
     os.set("name", std::env::consts::OS)?;
@@ -384,7 +384,7 @@ pub fn extend_os(s: &LuaState) -> Result<()> {
     use std::collections::HashMap;
     use std::process::{Command, Stdio};
 
-    fn init_command(arg: ValRef) -> Result<Command> {
+    fn init_command(arg: LuaTable) -> Result<Command> {
         let mut args: SerdeValue<Vec<&str>> = arg.check_cast()?;
         if args.is_empty() {
             Err("empty command").lua_result()?;
@@ -417,7 +417,7 @@ pub fn extend_os(s: &LuaState) -> Result<()> {
 }
 
 pub fn extend_string(s: &LuaState) -> Result<()> {
-    let string = s.global().get("string")?;
+    let string: LuaTable = s.global().get("string")?.try_into()?;
 
     string.register1("to_utf16", |s: &LuaState, t: &str| unsafe {
         let mut r = t.encode_utf16().collect::<Vec<_>>();
