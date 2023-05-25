@@ -201,7 +201,7 @@ impl State {
             self.push_cclosure(Some(async_closure_wrapper::<R, FUT, F>), 0);
         } else {
             self.push_userdatauv(f, 0)?;
-            let mt = self.create_table(0, 1)?;
+            let mt = self.new_table_with_size(0, 1)?;
             mt.set("__gc", __gc::<F> as CFunction)?;
             mt.0.ensure_top();
             self.set_metatable(-2);

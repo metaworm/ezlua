@@ -36,7 +36,7 @@ unsafe impl Sync for State {}
 impl State {
     #[inline]
     pub fn do_string<S: AsRef<[u8]>>(&self, script: S, name: Option<&str>) -> Result<()> {
-        self.new_function(script, name)?.pcall_void(())
+        self.load(script, name)?.pcall_void(())
     }
 
     #[inline(always)]
@@ -206,7 +206,7 @@ pub mod unsafe_impl {
         }
 
         #[inline(always)]
-        pub fn create_table(&self, narr: c_int, nrec: c_int) -> Result<Table> {
+        pub fn new_table_with_size(&self, narr: c_int, nrec: c_int) -> Result<Table> {
             UnsafeLuaApi::create_table(self, narr, nrec);
             Ok(self.top_val().try_into().unwrap())
         }
@@ -214,7 +214,7 @@ pub mod unsafe_impl {
         /// Create a table
         #[inline(always)]
         pub fn new_table(&self) -> Result<Table> {
-            self.create_table(0, 0)
+            self.new_table_with_size(0, 0)
         }
 
         /// Create a lua string
@@ -222,12 +222,6 @@ pub mod unsafe_impl {
         pub fn new_string<S: AsRef<[u8]>>(&self, s: S) -> Result<LuaString> {
             self.push_bytes(s.as_ref());
             Ok(self.top_val().try_into().unwrap())
-        }
-
-        /// Create function from script string or bytecode
-        #[inline(always)]
-        pub fn new_function<S: AsRef<[u8]>>(&self, s: S, name: Option<&str>) -> Result<Function> {
-            self.load(s, name)
         }
 
         /// Load script string or bytecode
@@ -244,7 +238,7 @@ pub mod unsafe_impl {
         #[inline]
         pub fn load_file<P: AsRef<Path>>(&self, path: P) -> Result<Function> {
             let path = path.as_ref();
-            self.new_function(
+            self.load(
                 std::fs::read(path).map_err(Error::from_debug)?,
                 Some(format!("@{}", path.to_string_lossy()).as_str()),
             )
@@ -298,7 +292,7 @@ pub mod unsafe_impl {
             let p = callback as *const usize;
             let metatable = self.raw_getp(LUA_REGISTRYINDEX, p);
             if metatable.is_none_or_nil() {
-                let mt = self.create_table(0, 4)?;
+                let mt = self.new_table_with_size(0, 4)?;
                 self.balance_with(|_| callback(&mt))?;
                 debug_assert_eq!(self.type_of(mt.index), Type::Table);
 
@@ -472,7 +466,7 @@ pub mod unsafe_impl {
                 Value::String(r) => self.pushval(r.0),
                 Value::Table(r) => self.pushval(r.0),
                 Value::Function(r) => self.pushval(r.0),
-                Value::Userdata(r) => self.pushval(r.0),
+                Value::UserData(r) => self.pushval(r.0),
                 Value::Thread(r) => self.pushval(r.0),
             }
         }

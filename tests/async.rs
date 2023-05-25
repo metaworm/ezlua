@@ -26,7 +26,7 @@ async fn elua_async() {
         .unwrap();
 
     let foo = s
-        .new_function(
+        .load(
             "
 local a, b, c = echo_async2(...)
 print(a, b, c)
@@ -81,7 +81,7 @@ async fn async_stack_balance() {
     let s = Lua::new();
 
     // pcall recycle multi value
-    let foo = s.new_function("return ...", None).unwrap();
+    let foo = s.load("return ...", None).unwrap();
     for i in 0..20 {
         println!("top{i} {}", s.stack_top());
         let (_, _, s3) = foo
@@ -96,7 +96,7 @@ async fn async_stack_balance() {
 async fn async_error_balance() {
     let s = Lua::with_open_libs();
 
-    let foo = s.new_function("error('error')", None).unwrap();
+    let foo = s.load("error('error')", None).unwrap();
     let top = s.stack_top();
     for _ in 0..10 {
         foo.call_async_void((1, 2, 3)).await.unwrap_err();

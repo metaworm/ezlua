@@ -140,23 +140,23 @@ fn arguments() -> LuaResult<()> {
     }
 
     println!("top1 {}", s.stack_top());
-    s.new_function("assert(... == 123)", None)?
+    s.load("assert(... == 123)", None)?
         .pcall_void(123)
         .expect("integer");
 
     println!("top2 {}", s.stack_top());
-    s.new_function("assert(... == 123.0)", None)?
+    s.load("assert(... == 123.0)", None)?
         .pcall_void(123.0)
         .expect("number");
 
     let top = s.stack_top();
     println!("top3 {}", s.stack_top());
-    s.new_function("assert(type(...) == 'userdata')", None)?
+    s.load("assert(type(...) == 'userdata')", None)?
         .pcall_void(Test)
         .expect("userdata");
 
     println!("top4 {}", s.stack_top());
-    s.new_function("assert(type(...) == 'userdata')", None)?
+    s.load("assert(type(...) == 'userdata')", None)?
         .pcall_void(Ok(Test))
         .expect("Ok(userdata)");
 
@@ -174,7 +174,7 @@ fn call_lua() {
 
     println!("top: {}", s.stack_top());
     for i in 1..10 {
-        let t = s.create_table(0, 0).unwrap();
+        let t = s.new_table_with_size(0, 0).unwrap();
         t.set("key", i).unwrap();
         g.seti(i, t).unwrap();
     }
@@ -186,13 +186,13 @@ fn call_lua() {
     }
     println!("top: {}", s.stack_top());
 
-    let fun = s.new_function("print(...)", None).unwrap();
+    let fun = s.load("print(...)", None).unwrap();
     fun.pcall::<_, ()>((1, 2, 3)).unwrap();
 
     g.set("g_number", 12345).unwrap();
 
     let result = s
-        .new_function(
+        .load(
             r"
         assert(g_number == 12345)
         return {abc = 1234}
@@ -214,8 +214,8 @@ fn push_check() {
 
     impl ToLua for Test {
         fn to_lua<'a>(self, s: &'a LuaState) -> LuaResult<ValRef<'a>> {
-            let result = s.create_table(0, 0)?;
-            let t2 = s.create_table(0, 0)?;
+            let result = s.new_table_with_size(0, 0)?;
+            let t2 = s.new_table_with_size(0, 0)?;
             t2.set("field", 1234)?;
             result.set("t2", t2)?;
             result.to_lua(s)
@@ -223,7 +223,7 @@ fn push_check() {
     }
 
     let result = s
-        .new_function(
+        .load(
             r"
         return ...
     ",
@@ -244,7 +244,7 @@ fn stack_balance() {
     let s = Lua::new();
 
     // pcall recycle multi value
-    let foo = s.new_function("return ...", None).unwrap();
+    let foo = s.load("return ...", None).unwrap();
     for i in 0..20 {
         println!("top{i} {}", s.stack_top());
         let (_, _, s3) = foo
@@ -267,7 +267,7 @@ fn table_iter() {
 
     let print = g.get("print").unwrap();
     let assert = s
-        .new_function(
+        .load(
             r#"
     local i = 1
     return function(k, v)
@@ -300,7 +300,7 @@ fn safe_reference() {
     let s = Lua::with_open_libs();
 
     let chunk = s
-        .new_function(
+        .load(
             r#"
     local buf = ...
     print(#buf)
@@ -340,11 +340,11 @@ fn error_balance() {
 
     let top = s.stack_top();
     for _ in 0..10 {
-        s.new_function("...", None).unwrap_err();
+        s.load("...", None).unwrap_err();
         assert_eq!(s.stack_top(), top);
     }
 
-    let foo = s.new_function("error('error')", None).unwrap();
+    let foo = s.load("error('error')", None).unwrap();
     let top = s.stack_top();
     for _ in 0..10 {
         foo.pcall_void((1, 2, 3)).unwrap_err();

@@ -4,7 +4,7 @@ use crate::{
     error::{Error, Result},
     ffi::{self, *},
     luaapi::*,
-    marker::Strict,
+    marker::{IterMap, IterVec, Strict},
     state::{StackGuard, State},
     userdata::{UserData, UserDataTrans},
     value::*,
@@ -103,7 +103,7 @@ macro_rules! impl_as_bytes {
     };
 }
 
-impl_as_bytes!(Vec<u8>);
+// impl_as_bytes!(Vec<u8>);
 impl_as_bytes!(Cow<'_, [u8]>);
 
 macro_rules! impl_as_str {
@@ -157,7 +157,7 @@ impl<'a, THIS: 'a, T: 'a, O: 'a, F: LuaMethod<'a, THIS, T, O>> ToLua
             return Ok(());
         } else {
             s.push_userdatauv(this, 0)?;
-            let mt = s.create_table(0, 1)?;
+            let mt = s.new_table_with_size(0, 1)?;
             mt.set("__gc", __gc::<Self> as CFunction)?;
             mt.0.ensure_top();
             s.set_metatable(-2);
@@ -200,6 +200,19 @@ impl<T: ToLua> ToLua for Option<T> {
             Some(t) => t.to_lua(s),
             _ => ().to_lua(s),
         }
+    }
+}
+
+impl<T: ToLua> ToLua for Vec<T> {
+    fn to_lua<'a>(self, s: &'a State) -> Result<ValRef<'a>> {
+        s.new_val(IterVec(self.into_iter()))
+    }
+}
+
+#[cfg(feature = "std")]
+impl<K: ToLua, V: ToLua> ToLua for HashMap<K, V> {
+    fn to_lua<'a>(self, s: &'a State) -> Result<ValRef<'a>> {
+        s.new_val(IterMap(self.into_iter()))
     }
 }
 
@@ -767,7 +780,7 @@ macro_rules! impl_register {
             k: K,
             f: FN,
         ) -> Result<&Self> {
-            self.raw_set(k, self.state.to_closure_wrapper(move |s: &'l State| Result::Ok(f(s, $($x::check(s, $i + 1)?,)*)), 0)?).map(|_| self)
+            self.raw_set(k, self.state.bind_closure(move |s: &'l State| Result::Ok(f(s, $($x::check(s, $i + 1)?,)*)), 0)?).map(|_| self)
         }
     );
 }
@@ -783,7 +796,7 @@ macro_rules! impl_closure {
             &'l self,
             f: FN,
         ) -> Result<Function<'l>> {
-            self.to_closure_wrapper(move |s: &'l State| Result::Ok(f(s, $($x::check(s, $i + 1)?,)*)), 0)
+            self.bind_closure(move |s: &'l State| Result::Ok(f(s, $($x::check(s, $i + 1)?,)*)), 0)
         }
     );
 }
@@ -832,7 +845,7 @@ impl State {
         refs: [REF; C],
     ) -> Result<Function<'_>> {
         let iter = RefCell::new(iter);
-        let val = self.to_closure_wrapper(
+        let val = self.bind_closure(
             move |s| iter.try_borrow_mut().map(|mut iter| iter.next().ok_or(())),
             C,
         )?;
@@ -859,7 +872,7 @@ impl State {
         refs: [REF; C],
     ) -> Result<Function> {
         let iter = RefCell::new(iter);
-        let val = self.to_closure_wrapper(
+        let val = self.bind_closure(
             move |s| {
                 iter.try_borrow_mut()
                     .map(|mut iter| iter.next().map(|x| map(s, x)).ok_or(()))
@@ -893,6 +906,24 @@ impl State {
         Some(closure_wrapper::<'l, R, F>)
     }
 
+    /// Bind a rust function(closure) with uniform argument types
+    #[inline(always)]
+    pub fn new_function<
+        'l,
+        ARGS: FromLuaMulti<'l>,
+        RET: ToLuaMulti + 'l,
+        F: Fn(&'l State, ARGS) -> RET + 'static,
+    >(
+        &self,
+        fun: F,
+    ) -> Result<Function<'_>> {
+        self.bind_closure(
+            move |s: &'l State| Result::Ok(fun(s, ARGS::from_lua(s, 1)?)),
+            0,
+        )
+    }
+
+    /// Bind a rust function(closure) with flexible argument types
     #[inline(always)]
     pub fn new_closure<
         'l,
@@ -903,7 +934,7 @@ impl State {
         &self,
         fun: F,
     ) -> Result<Function<'_>> {
-        self.to_closure_wrapper(
+        self.bind_closure(
             move |s: &'l State| Result::Ok(fun.call(A::from_lua(s, 1)?)),
             0,
         )
@@ -922,7 +953,7 @@ impl State {
     impl_closure!(new_closure10(A:0 B:1 C:2 D:3 E:4 F:5 G:6 H:7 I:8 J:9));
 
     #[inline(always)]
-    fn to_closure_wrapper<'l, R: ToLuaMulti + 'l, F: Fn(&'l State) -> R>(
+    pub fn bind_closure<'l, R: ToLuaMulti + 'l, F: Fn(&'l State) -> R>(
         &self,
         f: F,
         extra_upval: usize,
@@ -931,7 +962,7 @@ impl State {
             self.push_cclosure(Some(closure_wrapper::<'l, R, F>), 0);
         } else {
             self.push_userdatauv(f, 0)?;
-            let mt = self.create_table(0, 1)?;
+            let mt = self.new_table_with_size(0, 1)?;
             mt.set("__gc", __gc::<F> as CFunction)?;
             mt.0.ensure_top();
             self.set_metatable(-2);

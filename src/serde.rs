@@ -212,11 +212,13 @@ impl<'a> SerializeTupleVariant for LuaTableSerializer<'a> {
 
 impl<'a> LuaTableSerializer<'a> {
     fn begin(s: &'a State, len: usize) -> LuaResult<Self> {
-        s.create_table(0, len as _).map(|val| Self(val, None))
+        s.new_table_with_size(0, len as _)
+            .map(|val| Self(val, None))
     }
 
     fn begin_array(s: &'a State, len: usize) -> LuaResult<Self> {
-        s.create_table(len as _, 0).map(|val| Self(val, None))
+        s.new_table_with_size(len as _, 0)
+            .map(|val| Self(val, None))
     }
 }
 
@@ -964,7 +966,7 @@ impl<'de> Visitor<'de> for LuaVisitor<'de> {
         let size = seq.size_hint();
         let t = self
             .0
-            .create_table(size.unwrap_or_default() as _, 0)
+            .new_table_with_size(size.unwrap_or_default() as _, 0)
             .map_err(A::Error::custom)?;
 
         if let Some(size) = size {
@@ -995,7 +997,7 @@ impl<'de> Visitor<'de> for LuaVisitor<'de> {
         let size = map.size_hint();
         let t = self
             .0
-            .create_table(0, size.unwrap_or_default() as _)
+            .new_table_with_size(0, size.unwrap_or_default() as _)
             .map_err(A::Error::custom)?;
 
         if let Some(size) = size {

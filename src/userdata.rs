@@ -28,7 +28,7 @@ unsafe fn get_weak_meta(s: &State) -> Result<()> {
     s.push_light_userdata(get_weak_meta as usize as *mut ());
     if s.get_table(LUA_REGISTRYINDEX) != Type::Table {
         s.pop(1);
-        s.create_table(0, 0)?;
+        s.new_table_with_size(0, 0)?;
         s.push("__mode")?;
         s.push("v")?;
         s.set_table(-3);
@@ -176,7 +176,7 @@ pub trait UserData: Sized {
         }
 
         {
-            let setter = mt.state.create_table(0, 0)?;
+            let setter = mt.state.new_table_with_size(0, 0)?;
             mt.state
                 .balance_with(|_| Self::setter(UserdataRegistry::new(&setter)))?;
             setter.0.ensure_top();
@@ -191,9 +191,9 @@ pub trait UserData: Sized {
 
         Self::metatable(UserdataRegistry::new(mt))?;
         {
-            let methods = mt.state.create_table(0, 0)?;
+            let methods = mt.state.new_table_with_size(0, 0)?;
             mt.set("methods", methods.clone())?;
-            let getter = mt.state.create_table(0, 0)?;
+            let getter = mt.state.new_table_with_size(0, 0)?;
             mt.state.balance_with(|_| {
                 Self::methods(UserdataRegistry::new(&methods))?;
                 Self::getter(UserdataRegistry::new(&getter))
@@ -211,7 +211,9 @@ pub trait UserData: Sized {
     type Trans: UserDataTrans<Self> = Self;
 
     /// add methods
-    fn methods(methods: UserdataRegistry<Self>) -> Result<()>;
+    fn methods(methods: UserdataRegistry<Self>) -> Result<()> {
+        Ok(())
+    }
 
     /// add fields getter
     fn getter(fields: UserdataRegistry<Self>) -> Result<()> {
@@ -615,6 +617,63 @@ impl<'a, U: 'a + ?Sized, R: 'a, W> MethodRegistry<'a, &U, R, W> {
 impl<'a, U: 'a, R: 'a, W> MethodRegistry<'a, U, R, W> {
     pub fn new(mt: &'a Table<'a>) -> Self {
         Self(mt, PhantomData)
+    }
+
+    #[inline(always)]
+    pub fn add_field_get<M, RET>(&self, k: &str, field: M) -> Result<&Self>
+    where
+        RET: ToLuaMulti + 'a,
+        M: Fn(&'a State, R) -> RET,
+        R: Deref<Target = U> + FromLua<'a>,
+    {
+        self.0.raw_set(
+            k,
+            self.state
+                .bind_closure(|s| Result::Ok(field(s, R::check(s, 1)?)), 0)?,
+        )?;
+        Ok(self)
+    }
+
+    #[inline(always)]
+    pub fn add_method<M, ARGS, RET>(&self, k: &str, method: M) -> Result<&Self>
+    where
+        ARGS: FromLuaMulti<'a> + 'a,
+        RET: ToLuaMulti + 'a,
+        M: Fn(&'a State, R, ARGS) -> RET,
+        R: Deref<Target = U> + FromLua<'a>,
+    {
+        self.0.raw_set(
+            k,
+            self.state.bind_closure(
+                |s| Result::Ok(method(s, R::check(s, 1)?, ARGS::from_lua(s, 2)?)),
+                0,
+            )?,
+        )?;
+        Ok(self)
+    }
+
+    #[inline(always)]
+    pub fn add_method_mut<M, ARGS, RET>(&self, k: &str, method: M) -> Result<&Self>
+    where
+        ARGS: FromLuaMulti<'a> + 'a,
+        RET: ToLuaMulti + 'a,
+        M: Fn(&'a State, &mut U, ARGS) -> RET,
+        W: DerefMut<Target = U> + FromLua<'a> + 'a,
+    {
+        self.0.raw_set(
+            k,
+            self.state.bind_closure(
+                |s| {
+                    Result::Ok(method(
+                        s,
+                        W::check(s, 1)?.deref_mut(),
+                        ARGS::from_lua(s, 2)?,
+                    ))
+                },
+                0,
+            )?,
+        )?;
+        Ok(self)
     }
 
     #[inline(always)]

@@ -106,6 +106,11 @@ impl<'a> ValRef<'a> {
     }
 
     #[inline]
+    pub fn to_string_lossy(&self) -> Cow<str> {
+        self.state.to_str_lossy(self.index).unwrap_or_default()
+    }
+
+    #[inline]
     pub fn to_bool(&self) -> bool {
         self.state.to_bool(self.index)
     }
@@ -277,7 +282,7 @@ impl<'a> ValRef<'a> {
             Type::String => Value::String(LuaString(self)),
             Type::Table => Value::Table(Table(self)),
             Type::Function => Value::Function(Function(self)),
-            Type::Userdata => Value::Userdata(LuaUserData(self)),
+            Type::Userdata => Value::UserData(LuaUserData(self)),
             Type::Thread => Value::Thread(LuaThread(self)),
         })
     }
@@ -303,7 +308,7 @@ impl<'a> ValRef<'a> {
             Type::String => Value::String(LuaString(self)),
             Type::Table => Value::Table(Table(self)),
             Type::Function => Value::Function(Function(self)),
-            Type::Userdata => Value::Userdata(LuaUserData(self)),
+            Type::Userdata => Value::UserData(LuaUserData(self)),
             Type::Thread => Value::Thread(LuaThread(self)),
         }
     }
@@ -392,7 +397,7 @@ pub enum Value<'a> {
     String(LuaString<'a>),
     Table(Table<'a>),
     Function(Function<'a>),
-    Userdata(LuaUserData<'a>),
+    UserData(LuaUserData<'a>),
     Thread(LuaThread<'a>),
 }
 
@@ -541,6 +546,11 @@ impl<'a> Table<'a> {
     #[inline(always)]
     pub fn push<V: ToLua>(&self, val: V) -> Result<()> {
         self.raw_seti((self.raw_len() + 1) as i64, val)
+    }
+
+    #[inline(always)]
+    pub fn pairs(&self) -> Result<impl Iterator<Item = (Value, Value)>> {
+        Ok(self.iter()?.map(|(k, v)| (k.into_value(), v.into_value())))
     }
 }
 

@@ -45,7 +45,7 @@ pub mod path {
     }
 
     pub fn init(s: &LuaState) -> Result<LuaTable> {
-        let t = s.create_table(0, 8)?;
+        let t = s.new_table_with_size(0, 8)?;
         t.register("dirname", Path::parent)?;
         t.register("exists", Path::exists)?;
         t.register("abspath", std::fs::canonicalize::<&str>)?;
@@ -279,7 +279,7 @@ pub mod process {
                 read_std(this.stderr.as_mut().ok_or("stderr").lua_result()?, size)
             })?;
 
-            fn read_std(r: &mut dyn Read, size: ReadArg) -> Result<Vec<u8>> {
+            fn read_std(r: &mut dyn Read, size: ReadArg) -> Result<LuaBytes> {
                 let mut buf = vec![];
                 match size {
                     ReadArg::All => {
@@ -291,7 +291,7 @@ pub mod process {
                         buf.resize(len, 0);
                     }
                 }
-                Ok(buf)
+                Ok(LuaBytes(buf))
             }
 
             Ok(())
@@ -619,7 +619,7 @@ mod thread {
     }
 
     pub fn init(s: &LuaState) -> Result<LuaTable> {
-        let t = s.create_table(0, 4)?;
+        let t = s.new_table_with_size(0, 4)?;
         t.register("spawn", |routine: Coroutine, name: Option<&str>| {
             thread::Builder::new()
                 .name(name.unwrap_or("<lua>").into())

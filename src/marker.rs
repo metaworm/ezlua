@@ -67,7 +67,7 @@ impl<K: ToLua, V: ToLua, I: IntoIterator<Item = (K, V)>> From<I> for IterMap<K, 
 
 impl<T: ToLua, I: Iterator<Item = T>> ToLua for IterVec<T, I> {
     const __PUSH: Option<fn(Self, &State) -> Result<()>> = Some(|this, s: &State| {
-        let res = s.create_table(this.0.size_hint().1.unwrap_or(0) as _, 0)?;
+        let res = s.new_table_with_size(this.0.size_hint().1.unwrap_or(0) as _, 0)?;
         let mut i = 1;
         for e in this.0 {
             res.raw_seti(i, e)?;
@@ -80,7 +80,7 @@ impl<T: ToLua, I: Iterator<Item = T>> ToLua for IterVec<T, I> {
 
 impl<K: ToLua, V: ToLua, I: Iterator<Item = (K, V)>> ToLua for IterMap<K, V, I> {
     const __PUSH: Option<fn(Self, &State) -> Result<()>> = Some(|this, s: &State| {
-        let res = s.create_table(this.0.size_hint().1.unwrap_or(0) as _, 0)?;
+        let res = s.new_table_with_size(this.0.size_hint().1.unwrap_or(0) as _, 0)?;
         for e in this.0 {
             res.raw_set(e.0, e.1)?;
         }
@@ -180,6 +180,7 @@ impl State {
 }
 
 /// Represents a bytes buffer
+#[derive(Debug, derive_more::From)]
 pub struct LuaBytes(pub Vec<u8>);
 
 impl ToLua for LuaBytes {
