@@ -200,7 +200,7 @@ fn lua_attribute<'a>(
     let st_mode = {
         use std::os::unix::fs::PermissionsExt;
 
-        mode = meta.permissions().mode();
+        mode = meta.permissions().mode() as libc::mode_t;
         if mode & libc::S_IRUSR != 0 {
             perms[0] = b'r';
         }
