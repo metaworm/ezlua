@@ -2,6 +2,8 @@
 
 use crate::{error::Result, state::State};
 
+#[cfg(feature = "std")]
+pub mod fs;
 #[cfg(feature = "json")]
 pub mod json;
 #[cfg(feature = "log")]

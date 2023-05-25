@@ -11,6 +11,7 @@
     tuple_trait,
     auto_traits,
     negative_impls,
+    file_set_times,
     associated_type_defaults
 )]
 #![allow(dead_code, unused_variables)]

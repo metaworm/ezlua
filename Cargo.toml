@@ -21,6 +21,7 @@ unsafe_send_sync = []
 async = ['unsafe_send_sync']
 
 [dependencies]
+libc = '0.2' 
 glob = '0.3'
 extend = "1.1"
 derive_more = '0.99'

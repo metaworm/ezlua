@@ -67,24 +67,24 @@ impl<K: ToLua, V: ToLua, I: IntoIterator<Item = (K, V)>> From<I> for IterMap<K, 
 
 impl<T: ToLua, I: Iterator<Item = T>> ToLua for IterVec<T, I> {
     const __PUSH: Option<fn(Self, &State) -> Result<()>> = Some(|this, s: &State| {
-        let r = s.create_table(this.0.size_hint().1.unwrap_or(0) as _, 0)?;
+        let res = s.create_table(this.0.size_hint().1.unwrap_or(0) as _, 0)?;
         let mut i = 1;
         for e in this.0 {
-            r.raw_seti(i, e)?;
+            res.raw_seti(i, e)?;
             i += 1;
         }
+        res.0.ensure_top();
         Ok(())
     });
 }
 
 impl<K: ToLua, V: ToLua, I: Iterator<Item = (K, V)>> ToLua for IterMap<K, V, I> {
     const __PUSH: Option<fn(Self, &State) -> Result<()>> = Some(|this, s: &State| {
-        let r = s.create_table(this.0.size_hint().1.unwrap_or(0) as _, 0)?;
+        let res = s.create_table(this.0.size_hint().1.unwrap_or(0) as _, 0)?;
         for e in this.0 {
-            s.push(e.0)?;
-            s.push(e.1)?;
-            s.raw_set(-2);
+            res.raw_set(e.0, e.1)?;
         }
+        res.0.ensure_top();
         Ok(())
     });
 }

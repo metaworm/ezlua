@@ -11,9 +11,17 @@ pub fn open(s: &LuaState) -> LuaResult<LuaTable> {
     m.register1("load", |s: &LuaState, buf: &[u8]| {
         s.load_from_deserializer(&mut serde_json::Deserializer::from_slice(buf))
     })?;
+    m.register1("loadfile", |s: &LuaState, path: &str| {
+        s.load_from_deserializer(&mut serde_json::Deserializer::from_reader(
+            std::fs::File::open(path).lua_result()?,
+        ))
+    })?;
     m.register("dump", |val: ValRef, pretty: LuaValue| match pretty {
-        LuaValue::Bool(true) => serde_json::to_vec_pretty(&val),
-        _ => serde_json::to_vec(&val),
+        LuaValue::Bool(true) => serde_json::to_vec_pretty(&val).map(LuaBytes),
+        _ => serde_json::to_vec(&val).map(LuaBytes),
+    })?;
+    m.register("dump_pretty", |val: ValRef| {
+        serde_json::to_vec_pretty(&val).map(LuaBytes)
     })?;
     m.register("print", |val: ValRef| {
         serde_json::to_writer(&mut std::io::stdout(), &val)

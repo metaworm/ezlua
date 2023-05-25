@@ -1207,7 +1207,7 @@ impl State {
                 let top = self.get_top();
                 push(value, self)?;
                 #[cfg(debug_assertions)]
-                assert_eq!(top + 1, self.get_top());
+                assert_eq!(top + 1, self.get_top(), "{}", core::any::type_name::<T>());
             }
             None => {
                 let top = self.get_top();

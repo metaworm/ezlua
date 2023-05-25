@@ -9,6 +9,7 @@ use crate::{
     ffi::{lua_Integer, lua_Number},
     luaapi::{Reference, Type, UnsafeLuaApi},
     marker::RegVal,
+    prelude::ArgRef,
     state::*,
     str::CStr,
     userdata::UserData,
@@ -257,7 +258,7 @@ impl<'a> ValRef<'a> {
 
     #[inline(always)]
     pub fn close_userdata(self) -> Result<()> {
-        self.call_metamethod("__close", ())
+        self.call_metamethod("__close", ArgRef(self.index))
     }
 
     pub fn checked_into_value(self) -> Option<Value<'a>> {

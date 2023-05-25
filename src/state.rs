@@ -167,6 +167,7 @@ pub mod unsafe_impl {
             if i <= self.base {
                 self.val_without_push(i)
             } else {
+                self.check_stack(1).expect("stack");
                 self.push_value(i);
                 self.top_val()
             }
