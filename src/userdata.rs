@@ -141,12 +141,57 @@ impl<'a, T: UserData<Trans = MaybePointer<T>>> FromLua<'a> for MaybePtrRef<'a, T
     fn from_index(s: &'a State, i: Index) -> Option<Self> {
         unsafe {
             Some(Self(
-                s.test_userdata_meta::<MaybePointer<T>>(i, T::INIT)?
+                s.test_userdata_meta::<MaybePointer<T>>(i, init_wrapper::<T>)?
                     .0
                     .as_ref()?,
             ))
         }
     }
+}
+
+pub(crate) fn init_wrapper<U: UserData>(mt: &Table) -> Result<()> {
+    use crate::luaapi::UnsafeLuaApi;
+
+    debug_assert_eq!(mt.type_of(), Type::Table);
+
+    mt.setf(crate::cstr!("__name"), U::TYPE_NAME)?;
+    mt.setf(crate::cstr!("__gc"), U::__gc as CFunction)?;
+
+    if U::RAW_LEN {
+        mt.setf(crate::cstr!("__len"), __len as CFunction)?;
+    }
+
+    {
+        let setter = mt.state.new_table_with_size(0, 0)?;
+        mt.state
+            .balance_with(|_| U::setter(UserdataRegistry::new(&setter)))?;
+        setter.0.ensure_top();
+        mt.state.push_cclosure(Some(U::__newindex), 1);
+        mt.state.set_field(mt.index, crate::cstr!("__newindex"));
+    }
+
+    {
+        mt.state.push_cclosure(Some(U::__close), 0);
+        mt.state.set_field(mt.index, crate::cstr!("__close"));
+    }
+
+    U::metatable(UserdataRegistry::new(mt))?;
+    {
+        let methods = mt.state.new_table_with_size(0, 0)?;
+        mt.set("methods", methods.clone())?;
+        let getter = mt.state.new_table_with_size(0, 0)?;
+        mt.state.balance_with(|_| {
+            U::methods(UserdataRegistry::new(&methods))?;
+            U::getter(UserdataRegistry::new(&getter))
+        })?;
+        getter.0.ensure_top();
+        methods.0.ensure_top();
+        mt.get("__index")?.ensure_top();
+        mt.state.push_cclosure(Some(U::__index), 3);
+        mt.state.set_field(mt.index, crate::cstr!("__index"));
+    }
+
+    Ok(())
 }
 
 /// Bind rust types as lua userdata, which can make lua access rust methods as lua methods or properties
@@ -162,51 +207,6 @@ pub trait UserData: Sized {
 
     /// set the cache table is a weaked reference if key_to_cache enabled
     const WEAK_REF_CACHE: bool = false;
-
-    const INIT: MetatableKey = |mt| {
-        use crate::luaapi::UnsafeLuaApi;
-
-        debug_assert_eq!(mt.type_of(), Type::Table);
-
-        mt.setf(crate::cstr!("__name"), Self::TYPE_NAME)?;
-        mt.setf(crate::cstr!("__gc"), Self::__gc as CFunction)?;
-
-        if Self::RAW_LEN {
-            mt.setf(crate::cstr!("__len"), __len as CFunction)?;
-        }
-
-        {
-            let setter = mt.state.new_table_with_size(0, 0)?;
-            mt.state
-                .balance_with(|_| Self::setter(UserdataRegistry::new(&setter)))?;
-            setter.0.ensure_top();
-            mt.state.push_cclosure(Some(Self::__newindex), 1);
-            mt.state.set_field(mt.index, crate::cstr!("__newindex"));
-        }
-
-        {
-            mt.state.push_cclosure(Some(Self::__close), 0);
-            mt.state.set_field(mt.index, crate::cstr!("__close"));
-        }
-
-        Self::metatable(UserdataRegistry::new(mt))?;
-        {
-            let methods = mt.state.new_table_with_size(0, 0)?;
-            mt.set("methods", methods.clone())?;
-            let getter = mt.state.new_table_with_size(0, 0)?;
-            mt.state.balance_with(|_| {
-                Self::methods(UserdataRegistry::new(&methods))?;
-                Self::getter(UserdataRegistry::new(&getter))
-            })?;
-            getter.0.ensure_top();
-            methods.0.ensure_top();
-            mt.get("__index")?.ensure_top();
-            mt.state.push_cclosure(Some(Self::__index), 3);
-            mt.state.set_field(mt.index, crate::cstr!("__index"));
-        }
-
-        Ok(())
-    };
 
     type Trans: UserDataTrans<Self> = Self;
 
@@ -249,7 +249,7 @@ pub trait UserData: Sized {
     fn clear_cached(&self, s: &State) -> Result<()> {
         use crate::luaapi::UnsafeLuaApi;
 
-        s.get_or_init_metatable(Self::INIT)?;
+        s.get_or_init_metatable(init_wrapper::<Self>)?;
         assert!(s.get_metatable(-1));
         let key = self.key_to_cache();
         s.push_light_userdata(key as usize as *mut ());
@@ -263,7 +263,7 @@ pub trait UserData: Sized {
     fn get_cahced(s: &State, key: *const ()) -> Result<bool> {
         use crate::luaapi::UnsafeLuaApi;
 
-        s.get_or_init_metatable(Self::INIT)?;
+        s.get_or_init_metatable(init_wrapper::<Self>)?;
         // use metatable of userdata's metatable as cache table
         if !s.get_metatable(-1) {
             UnsafeLuaApi::new_table(s);
@@ -431,7 +431,7 @@ impl<T: UserData<Trans = MaybePointer<T>>> ToLua for MaybePtrRef<'_, T> {
                 .expect("new MaybePointer");
             p.0 = this.0;
         }
-        s.set_or_init_metatable(T::INIT)?;
+        s.set_or_init_metatable(init_wrapper::<T>)?;
 
         if T::INDEX_USERVALUE {
             s.balance_with(init_userdata::<T>)?;
@@ -451,7 +451,7 @@ impl<'a, T: UserData<Trans = T>> FromLua<'a> for &'a T {
 
     #[inline(always)]
     fn from_index(s: &'a State, i: Index) -> Option<&'a T> {
-        unsafe { Some(s.test_userdata_meta::<T>(i, T::INIT)?) }
+        unsafe { Some(s.test_userdata_meta::<T>(i, init_wrapper::<T>)?) }
     }
 }
 
@@ -459,7 +459,7 @@ impl State {
     /// Register a metatable of UserData into the C registry and return it
     #[inline(always)]
     pub fn register_usertype<U: UserData>(&self) -> Result<Table> {
-        self.get_or_init_metatable(U::INIT)?;
+        self.get_or_init_metatable(init_wrapper::<U>)?;
         Ok(self.top_val().try_into().unwrap())
     }
 
@@ -506,7 +506,7 @@ impl State {
             if let Some(init_userdata) = <T::Trans as UserDataTrans<T>>::INIT_USERDATA {
                 init_userdata(self, p);
             }
-            self.set_or_init_metatable(T::INIT)?;
+            self.set_or_init_metatable(init_wrapper::<T>)?;
         }
 
         if T::INDEX_USERVALUE {

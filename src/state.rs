@@ -14,9 +14,11 @@ use alloc::collections::BTreeSet as Slots;
 #[cfg(not(feature = "use_bset"))]
 use alloc::collections::BinaryHeap as Slots;
 use alloc::format;
-use core::cell::{Cell, RefCell};
-use core::ffi::{c_char, c_int};
-use core::{mem, str};
+use core::{
+    cell::{Cell, RefCell},
+    ffi::{c_char, c_int},
+    str,
+};
 
 /// Safe wrapper for operation to lua_State
 #[derive(Debug)]
@@ -48,8 +50,46 @@ impl State {
     }
 
     #[inline(always)]
+    pub fn safe_index(&self, i: Index) -> bool {
+        i <= self.base
+    }
+
+    #[inline(always)]
     pub(crate) fn stack_guard(&self) -> StackGuard {
         StackGuard::from(self)
+    }
+
+    pub(crate) fn drop_valref<'a>(&'a self, val: &ValRef<'a>) {
+        if val.index > self.base {
+            self.give_back_slot(val.index);
+        }
+    }
+
+    #[inline(always)]
+    #[track_caller]
+    pub(crate) fn slot_exists(&self, i: Index) -> bool {
+        self.free.borrow().iter().find(|&n| *n == i).is_some()
+    }
+
+    #[inline(always)]
+    #[track_caller]
+    pub(crate) fn give_back_slot(&self, i: Index) {
+        // #[cfg(debug_assertions)]
+        // {
+        //     let loc = std::panic::Location::caller();
+        //     assert!(
+        //         !self.slot_exists(i),
+        //         "give back: {} from: {}:{}",
+        //         i,
+        //         loc.file(),
+        //         loc.line()
+        //     );
+        // }
+        self.free.borrow_mut().push(i);
+    }
+
+    pub fn free_slots(&self) -> core::cell::Ref<Slots<i32>> {
+        self.free.borrow()
     }
 }
 
@@ -139,8 +179,8 @@ pub mod unsafe_impl {
         }
 
         pub(crate) fn top_val(&self) -> ValRef {
-            let top = self.get_top();
-            self.try_replace_top(top).unwrap_or_else(|| {
+            self.try_replace_top().unwrap_or_else(|| {
+                let top = self.get_top();
                 self.set_max_valref_index(top);
                 ValRef {
                     state: self,
@@ -149,7 +189,7 @@ pub mod unsafe_impl {
             })
         }
 
-        pub(crate) fn try_replace_top(&self, top: Index) -> Option<ValRef> {
+        pub(crate) fn try_replace_top(&self) -> Option<ValRef> {
             let top = self.get_top();
             while let Some(slot) = self.free.borrow_mut().pop() {
                 if slot < top {
@@ -164,6 +204,7 @@ pub mod unsafe_impl {
         }
 
         pub(crate) fn val(&self, i: Index) -> ValRef {
+            debug_assert!(i > 0);
             if i <= self.base {
                 self.val_without_push(i)
             } else {
@@ -171,6 +212,14 @@ pub mod unsafe_impl {
                 self.push_value(i);
                 self.top_val()
             }
+        }
+
+        #[inline(always)]
+        pub fn arg_val(&self, i: Index) -> Option<ValRef> {
+            self.safe_index(i).then(|| ValRef {
+                state: self,
+                index: self.abs_index(i),
+            })
         }
 
         pub fn to_safe_bytes(&self, i: Index) -> Option<&[u8]> {
@@ -260,25 +309,6 @@ pub mod unsafe_impl {
             Ok(())
         }
 
-        pub(crate) fn drop_valref<'a>(&'a self, val: &ValRef<'a>) {
-            if val.index > self.base {
-                self.free.borrow_mut().push(val.index);
-            }
-        }
-
-        #[inline(always)]
-        pub fn safe_index(&self, i: Index) -> bool {
-            i <= self.base
-        }
-
-        #[inline(always)]
-        pub fn arg_val(&self, i: Index) -> Option<ValRef> {
-            self.safe_index(i).then_some(ValRef {
-                state: self,
-                index: self.abs_index(i),
-            })
-        }
-
         #[inline(always)]
         pub fn global(&self) -> Table {
             self.raw_geti(LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
@@ -323,27 +353,19 @@ pub mod unsafe_impl {
             Ok(())
         }
 
-        // ///////////////////////// Wrapper functions //////////////////////////////
+        #[inline(always)]
+        pub unsafe fn test_userdata_meta<T>(&self, i: Index, meta: MetatableKey) -> Option<&mut T> {
+            let _guard = self.stack_guard();
 
-        pub unsafe fn check_userdata<T>(&self, i: Index, name: &CStr) -> &mut T {
-            mem::transmute(luaL_checkudata(self.state, i, name.as_ptr()))
-        }
-
-        pub fn test_userdata_meta_(&self, i: Index, meta: MetatableKey) -> *mut () {
-            if self.get_metatable(i) && {
+            let p = if self.get_metatable(i) && {
                 self.raw_getp(LUA_REGISTRYINDEX, meta as *const ());
                 self.raw_equal(-1, -2)
             } {
-                self.pop(2);
                 self.to_userdata(i) as _
             } else {
                 core::ptr::null_mut()
-            }
-        }
-
-        #[inline(always)]
-        pub unsafe fn test_userdata_meta<T>(&self, i: Index, meta: MetatableKey) -> Option<&mut T> {
-            (self.test_userdata_meta_(i, meta) as *mut T).as_mut()
+            };
+            (p as *mut T).as_mut()
         }
 
         /// [-1, +1, -]

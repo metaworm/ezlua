@@ -35,10 +35,22 @@ impl Clone for ValRef<'_> {
 
 impl<'a> core::fmt::Debug for ValRef<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("ValRef")
-            .field("index", &self.index)
-            .field("type", &self.type_of())
-            .finish()
+        let mut ds = f.debug_struct("ValRef");
+        ds.field("index", &self.index)
+            .field("type", &self.type_of());
+        match self.type_of() {
+            Type::Boolean => ds.field("value", &self.to_bool()),
+            Type::Userdata | Type::LightUserdata => {
+                ds.field("value", &self.state.to_userdata(self.index))
+            }
+            Type::Number => ds.field("value", &self.to_number()),
+            Type::String => ds.field("value", &self.to_str_lossy()),
+            Type::Table | Type::Thread | Type::Function => {
+                ds.field("value", &self.state.to_pointer(self.index))
+            }
+            _ => ds.field("value", &()),
+        }
+        .finish()
     }
 }
 
@@ -92,16 +104,19 @@ impl<'a> ValRef<'a> {
 
     #[inline]
     pub fn to_bytes(&self) -> Option<&[u8]> {
+        self.check_type(Type::String).ok()?;
         self.state.to_bytes(self.index)
     }
 
     #[inline]
     pub fn to_str(&self) -> Option<&str> {
+        self.check_type(Type::String).ok()?;
         self.state.to_str(self.index)
     }
 
     #[inline]
     pub fn to_str_lossy(&self) -> Option<Cow<str>> {
+        self.check_type(Type::String).ok()?;
         self.state.to_str_lossy(self.index)
     }
 
@@ -179,30 +194,6 @@ impl<'a> ValRef<'a> {
         self.state.push(v)?;
         self.set_field(k);
         Ok(())
-    }
-
-    #[inline]
-    pub fn getp<T>(&self, p: *const T) -> ValRef {
-        self.state.raw_getp(self.index, p);
-        self.state.top_val()
-    }
-
-    #[inline]
-    pub fn setp<T, V: ToLua>(&self, k: *const T, v: V) -> Result<()> {
-        self.state.push(v)?;
-        self.state.raw_setp(self.index, k);
-        Ok(())
-    }
-
-    #[inline]
-    pub fn reference<V: ToLua>(&self, v: V) -> Result<Reference> {
-        self.state.push(v)?;
-        Ok(self.state.reference(self.index))
-    }
-
-    #[inline]
-    pub fn unreference(&self, r: Reference) {
-        self.state.unreference(self.index, r);
     }
 
     #[inline]
@@ -346,11 +337,6 @@ impl<'a> ValRef<'a> {
             core::mem::forget(self);
         }
     }
-
-    pub(crate) fn forgot_top(self) {
-        assert_eq!(self.index, self.state.stack_top(), "forget top");
-        core::mem::forget(self);
-    }
 }
 
 /// Iterator for table traversing, like `pairs` in lua
@@ -366,8 +352,7 @@ impl<'a, V: AsRef<ValRef<'a>>> Iterator for ValIter<'a, V> {
         self.key.take().expect("next key must exists").ensure_top();
         let val = self.val.as_ref();
         if val.state.next(val.index) {
-            let top = val.state.get_top();
-            let (k, val) = if let Some(val) = val.state.try_replace_top(top) {
+            let (k, val) = if let Some(val) = val.state.try_replace_top() {
                 (val.state.top_val(), val)
             } else {
                 (
@@ -487,6 +472,30 @@ impl_wrap!(LuaThread<'a>, Type::Thread, as_thread);
 impl_wrap!(LuaUserData<'a>, Type::Userdata, as_userdata);
 
 impl<'a> Table<'a> {
+    #[inline]
+    pub fn getp<T>(&self, p: *const T) -> ValRef {
+        self.state.raw_getp(self.index, p);
+        self.state.top_val()
+    }
+
+    #[inline]
+    pub fn setp<T, V: ToLua>(&self, k: *const T, v: V) -> Result<()> {
+        self.state.push(v)?;
+        self.state.raw_setp(self.index, k);
+        Ok(())
+    }
+
+    #[inline]
+    pub fn reference<V: ToLua>(&self, v: V) -> Result<Reference> {
+        self.state.push(v)?;
+        Ok(self.state.reference(self.index))
+    }
+
+    #[inline]
+    pub fn unreference(&self, r: Reference) {
+        self.state.unreference(self.index, r);
+    }
+
     pub fn entry_count(&self) -> usize {
         let mut count = 0usize;
         self.state.push_nil();
@@ -607,7 +616,7 @@ impl<'a> LuaUserData<'a> {
     pub fn userdata_ref<U: UserData>(&self) -> Option<&'a U::Trans> {
         unsafe {
             self.state
-                .test_userdata_meta::<U::Trans>(self.index, U::INIT)
+                .test_userdata_meta::<U::Trans>(self.index, crate::userdata::init_wrapper::<U>)
                 .map(|x| x as _)
         }
     }
@@ -615,6 +624,6 @@ impl<'a> LuaUserData<'a> {
     #[inline(always)]
     pub unsafe fn userdata_ref_mut<U: UserData>(&self) -> Option<&mut U::Trans> {
         self.state
-            .test_userdata_meta::<U::Trans>(self.index, U::INIT)
+            .test_userdata_meta::<U::Trans>(self.index, crate::userdata::init_wrapper::<U>)
     }
 }

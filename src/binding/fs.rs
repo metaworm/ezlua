@@ -13,7 +13,7 @@ pub fn open(lua: &LuaState) -> LuaResult<LuaTable> {
     module.register("currentdir", std::env::current_dir)?;
 
     module.register("dir", |dir: &str| {
-        fs::read_dir(dir).map(|iter| StaticIter::new(iter.flatten()))
+        fs::read_dir(dir).map(|iter| StaticIter::new(iter.flatten().map(|e| e.file_name())))
     })?;
 
     module.register("link", |old: &str, new: &str, symbol: Option<bool>| {

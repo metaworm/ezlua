@@ -756,8 +756,8 @@ impl State {
     fn check_multi_balance<'a>(&'a self, guard: StackGuard<'a>, top: i32) {
         if self.get_top() > top {
             // reuse slots between old_top and top
-            for i in guard.top()..=top {
-                self.free.borrow_mut().push(i);
+            for i in guard.top() + 1..=top {
+                self.give_back_slot(i);
             }
             core::mem::forget(guard);
         } else {

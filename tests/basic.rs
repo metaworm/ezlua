@@ -1,7 +1,9 @@
 use std::cell::{Ref, RefCell, RefMut};
 use std::rc::Rc;
 
+use ::serde::{Deserialize, Serialize};
 use ezlua::prelude::*;
+use ezlua::serde::SerdeValue;
 
 struct Test {
     a: i32,
@@ -86,9 +88,6 @@ fn userdata() {
 
 #[test]
 fn serde() {
-    use ::serde::{Deserialize, Serialize};
-    use ezlua::serde::SerdeValue;
-
     #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
     struct Test<'a> {
         str: &'a str,
@@ -259,6 +258,13 @@ fn table_iter() {
     let s = Lua::with_open_libs();
     let g = s.global();
     let table = g.get("table").unwrap();
+    table.set("bb", false).unwrap();
+
+    #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
+    struct Test {
+        bb: bool,
+        array: Vec<i32>,
+    }
 
     let t = s.new_table().unwrap();
     for i in 1..=100 {
@@ -266,31 +272,41 @@ fn table_iter() {
     }
 
     let print = g.get("print").unwrap();
-    let assert = s
-        .load(
-            r#"
+
+    for _ in 0..100 {
+        let assert = s
+            .load(
+                r#"
     local i = 1
     return function(k, v)
         assert(k == i and v == i)
         i = i + 1
     end
     "#,
-            None,
-        )
-        .unwrap()
-        .pcall::<_, ValRef>(())
-        .unwrap();
-    for (k, v) in t.iter().unwrap() {
-        k.check_type(LuaType::Number).unwrap();
-        v.check_type(LuaType::Number).unwrap();
-        print.pcall_void((&k, &v, s.stack_top())).unwrap();
-        assert.pcall_void((k, v, s.stack_top())).unwrap();
-    }
+                None,
+            )
+            .unwrap()
+            .pcall::<_, LuaFunction>(())
+            .unwrap();
 
-    for (k, v) in table.iter().unwrap() {
-        k.check_type(LuaType::String).unwrap();
-        v.check_type(LuaType::Function).unwrap();
-        print.pcall_void((k, v, s.stack_top())).unwrap();
+        table.set("array", t.clone()).unwrap();
+        let t = table.deserialize::<Test>().unwrap();
+        std::println!("table deserialize: {t:?}");
+        for (k, v) in table.iter().unwrap() {
+            if v.type_of() == LuaType::Table {
+                for (k, v) in v.iter().unwrap() {
+                    k.check_type(LuaType::Number).unwrap();
+                    v.check_type(LuaType::Number).unwrap();
+                    print.pcall_void((&k, &v, s.stack_top())).unwrap();
+                    assert.pcall_void((k, v, s.stack_top())).unwrap();
+                }
+            } else {
+                // k.check_type(LuaType::String).unwrap();
+                // v.check_type(LuaType::Function).unwrap();
+                print.pcall_void((k, v, s.stack_top())).unwrap();
+            }
+        }
+        std::println!("[top] {}", s.stack_top());
     }
 }
 

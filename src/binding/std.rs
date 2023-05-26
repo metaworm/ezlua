@@ -694,7 +694,7 @@ pub fn init_global(s: &LuaState) -> Result<()> {
 
 pub fn call_print(s: &LuaState, err: &str) {
     let g = s.global();
-    let error = g.getf(crate::cstr!("__elua_error"));
+    let error = g.getf(crate::cstr!("__ezlua_error"));
     let print = g.getf(crate::cstr!("print"));
     if error.type_of() == LuaType::Function {
         error.pcall_void(err).ok();
