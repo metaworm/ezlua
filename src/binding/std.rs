@@ -562,7 +562,7 @@ mod thread {
         const TYPE_NAME: &'static str = "LuaMutexGaurd";
 
         fn methods(methods: UserdataRegistry<Self>) -> LuaResult<()> {
-            methods.set_closure("unlock", LuaUserData::close)?;
+            methods.set_closure("unlock", ValRef::close)?;
             Ok(())
         }
     }

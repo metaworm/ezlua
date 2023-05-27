@@ -13,8 +13,8 @@ use crate::{
     convert::*,
     error::{Error, Result},
     ffi::{
-        luaL_checktype, lua_State, lua_pushinteger, lua_pushnil, lua_rawlen, lua_setmetatable,
-        lua_upvalueindex, CFunction, LUA_REGISTRYINDEX, LUA_TUSERDATA,
+        luaL_checktype, lua_State, lua_pushinteger, lua_rawlen, lua_upvalueindex, CFunction,
+        LUA_REGISTRYINDEX, LUA_TUSERDATA,
     },
     luaapi::Type,
     state::State,
@@ -384,10 +384,9 @@ pub trait UserData: Sized {
         let u = s.arg::<LuaUserData>(1);
         if let Some(p) = u.as_ref().and_then(|u| u.userdata_ref_mut::<Self>()) {
             p.when_drop();
-            // erase its metatable
-            lua_pushnil(l);
-            lua_setmetatable(l, 1);
         }
+        // erase userdata's metatable
+        u.map(|u| u.remove_metatable());
         0
     }
 

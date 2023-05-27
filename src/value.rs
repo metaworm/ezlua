@@ -231,6 +231,13 @@ impl<'a> ValRef<'a> {
         Ok(())
     }
 
+    /// Remove metatable for lua table or userdata
+    pub fn remove_metatable(&self) {
+        // TODO: thread lock
+        self.state.push_nil();
+        self.state.set_metatable(self.index);
+    }
+
     /// Call a metamethod
     #[inline(always)]
     pub fn call_metamethod<T: ToLuaMulti, R: FromLuaMulti<'a>>(
@@ -242,6 +249,12 @@ impl<'a> ValRef<'a> {
             .ok_or_else(|| Error::runtime("no metatable"))?
             .raw_get(m)?
             .pcall(args)
+    }
+
+    /// Close this value, if userdata, the subsequent access to it in lua is invalid
+    #[inline(always)]
+    pub fn close(self) -> Result<()> {
+        self.call_metamethod("__close", ArgRef(self.index))
     }
 
     pub fn checked_into_value(self) -> Option<Value<'a>> {
@@ -613,6 +626,7 @@ impl<'a> LuaString<'a> {
 }
 
 impl<'a> LuaUserData<'a> {
+    /// Set uservalue
     #[inline]
     pub fn set_uservalue<V: ToLua>(&self, v: V) -> Result<()> {
         self.state.push(v)?;
@@ -620,12 +634,14 @@ impl<'a> LuaUserData<'a> {
         Ok(())
     }
 
+    /// Get the uservalue stored in uservalue
     #[inline]
     pub fn get_uservalue(&self) -> Result<ValRef<'a>> {
         self.state.get_uservalue(self.index);
         Ok(self.state.top_val())
     }
 
+    /// Set n-th uservalue
     #[inline]
     pub fn set_iuservalue<V: ToLua>(&self, n: i32, v: V) -> Result<()> {
         self.state.push(v)?;
@@ -633,15 +649,21 @@ impl<'a> LuaUserData<'a> {
         Ok(())
     }
 
+    /// Get n-th uservalue stored in uservalue
     #[inline]
     pub fn get_iuservalue(&self, n: i32) -> Result<ValRef<'a>> {
         self.state.get_iuservalue(self.index, n);
         Ok(self.state.top_val())
     }
 
-    #[inline(always)]
-    pub fn close(self) -> Result<()> {
-        self.call_metamethod("__close", ArgRef(self.index))
+    /// Take the ownership, and subsequent access in lua is invalid
+    pub fn take<U: UserData>(self) -> Option<U::Trans> {
+        unsafe {
+            self.userdata_ref::<U>().map(|p| {
+                self.remove_metatable();
+                core::ptr::read(p)
+            })
+        }
     }
 
     #[inline(always)]
