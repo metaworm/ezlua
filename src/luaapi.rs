@@ -1211,8 +1211,13 @@ impl State {
             }
             None => {
                 let top = self.get_top();
-                value.to_lua(self)?.ensure_top();
-                self.clear_with_keep_top_one(top);
+                self.push_value(value.to_lua(self)?.index);
+                if !self.clear_with_keep_top_one(top) {
+                    panic!(
+                        "stack should be increased, top: {top} after: {}",
+                        self.get_top()
+                    );
+                }
             }
         }
         Ok(())

@@ -59,6 +59,7 @@ impl State {
         StackGuard::from(self)
     }
 
+    #[track_caller]
     pub(crate) fn drop_valref<'a>(&'a self, val: &ValRef<'a>) {
         if val.index > self.base {
             self.give_back_slot(val.index);
@@ -74,17 +75,21 @@ impl State {
     #[inline(always)]
     #[track_caller]
     pub(crate) fn give_back_slot(&self, i: Index) {
-        // #[cfg(debug_assertions)]
+        // #[cfg(all(debug_assertions, feature = "debug_ezlua"))]
         // {
         //     let loc = std::panic::Location::caller();
         //     assert!(
         //         !self.slot_exists(i),
-        //         "give back: {} from: {}:{}",
-        //         i,
+        //         "[give back]: {i} from: {}:{}",
         //         loc.file(),
         //         loc.line()
         //     );
         // }
+        #[cfg(feature = "debug_ezlua")]
+        {
+            let loc = std::panic::Location::caller();
+            std::println!("[give back]: {i} from: {}:{}", loc.file(), loc.line());
+        }
         self.free.borrow_mut().push(i);
     }
 
@@ -192,6 +197,8 @@ pub mod unsafe_impl {
         pub(crate) fn try_replace_top(&self) -> Option<ValRef> {
             let top = self.get_top();
             while let Some(slot) = self.free.borrow_mut().pop() {
+                #[cfg(feature = "debug_ezlua")]
+                std::println!("[borrow slot] {slot} top: {top}");
                 if slot < top {
                     self.replace(slot);
                     return Some(ValRef {
@@ -256,7 +263,8 @@ pub mod unsafe_impl {
 
         #[inline(always)]
         pub fn new_table_with_size(&self, narr: c_int, nrec: c_int) -> Result<Table> {
-            UnsafeLuaApi::create_table(self, narr, nrec);
+            self.check_stack(1)?;
+            self.create_table(narr, nrec);
             Ok(self.top_val().try_into().unwrap())
         }
 
@@ -269,6 +277,7 @@ pub mod unsafe_impl {
         /// Create a lua string
         #[inline]
         pub fn new_string<S: AsRef<[u8]>>(&self, s: S) -> Result<LuaString> {
+            self.check_stack(1)?;
             self.push_bytes(s.as_ref());
             Ok(self.top_val().try_into().unwrap())
         }
@@ -506,18 +515,31 @@ pub mod unsafe_impl {
         }
 
         /// clear the stack, but only retain the top value
-        pub(crate) fn clear_with_keep_top_one(&self, base: Index) {
+        pub(crate) fn clear_with_keep_top_one(&self, base: Index) -> bool {
             let top = self.get_top();
             if top == base + 1 {
-                return;
+                return true;
             }
-            if top > (base + 1) {
+            if top > base + 1 {
                 self.drop_slots_greater(base);
                 self.replace(base + 1);
                 self.set_top(base + 1);
-            } else {
-                panic!("stack should be increased but decreased")
+                return true;
             }
+
+            false
+        }
+
+        #[track_caller]
+        pub(crate) fn dump_stack(&self) -> String {
+            let loc = std::panic::Location::caller();
+            let mut info = format!("dump_stack from {}:{}\n", loc.file(), loc.line());
+            for i in (1..=self.get_top()).rev().take(6) {
+                let val = self.val_without_push(i);
+                info += format!("  [{i}] {val:?}\n").as_str();
+                core::mem::forget(val);
+            }
+            info
         }
 
         pub(crate) fn reset_max_valref_index(&self) {

@@ -19,6 +19,7 @@ json = ['serde_json']
 std = ['bitflags']
 unsafe_send_sync = []
 async = ['unsafe_send_sync']
+debug_ezlua = []
 
 [dependencies]
 libc = '0.2' 

@@ -55,6 +55,7 @@ impl<'a> core::fmt::Debug for ValRef<'a> {
 }
 
 impl Drop for ValRef<'_> {
+    #[track_caller]
     fn drop(&mut self) {
         self.state.drop_valref(self);
     }
@@ -330,10 +331,12 @@ impl<'a> ValRef<'a> {
     }
 
     /// [+(0|1), 0, -]
+    #[inline(always)]
     pub(crate) fn ensure_top(self) {
-        if self.index != self.state.stack_top() {
+        if self.index < self.state.get_top() {
             self.state.push_value(self.index);
         } else {
+            debug_assert!(self.index == self.state.get_top());
             core::mem::forget(self);
         }
     }

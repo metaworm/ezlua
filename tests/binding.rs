@@ -18,3 +18,5 @@ binding_test!(regex, "tests/test_regex.lua");
 binding_test!(thread, "tests/thread.lua");
 
 binding_test!(stdlib, "tests/test_std.lua");
+
+binding_test!(json, "tests/json.lua");
