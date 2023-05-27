@@ -894,7 +894,7 @@ impl State {
     }
 
     #[inline(always)]
-    fn to_str_lossy<'a>(&'a self, index: Index) -> Option<Cow<'a, str>> {
+    fn to_string_lossy<'a>(&'a self, index: Index) -> Option<Cow<'a, str>> {
         self.to_bytes(index).map(|r| String::from_utf8_lossy(r))
     }
 

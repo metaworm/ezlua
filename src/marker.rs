@@ -159,14 +159,18 @@ impl<T: ToLuaMulti> ToLua for StaticIter<'static, T> {
 }
 
 /// Represents results which are already pushed to the stack
+///
+/// Notice: this type can only be used at the end of a function
 #[derive(Debug, Default)]
 pub struct Pushed(usize);
 
 impl ToLuaMulti for Pushed {
+    #[inline(always)]
     fn value_count(&self) -> Option<usize> {
         Some(self.0)
     }
 
+    #[inline(always)]
     fn push_multi(self, s: &crate::state::State) -> Result<usize> {
         Ok(self.0)
     }
@@ -174,6 +178,7 @@ impl ToLuaMulti for Pushed {
 
 impl State {
     /// Push results to stack
+    #[inline(always)]
     pub fn pushed<T: ToLuaMulti>(&self, results: T) -> Result<Pushed> {
         results.push_multi(self).map(Pushed)
     }

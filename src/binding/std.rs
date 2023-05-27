@@ -25,20 +25,20 @@ pub mod path {
 
     impl UserData for Metadata {
         fn getter(fields: UserdataRegistry<Self>) -> Result<()> {
-            fields.register("size", Self::len)?;
-            fields.register("modified", Self::modified)?;
-            fields.register("created", Self::created)?;
-            fields.register("accessed", Self::accessed)?;
-            fields.register("readonly", |this: &Self| this.permissions().readonly())?;
+            fields.set_closure("size", Self::len)?;
+            fields.set_closure("modified", Self::modified)?;
+            fields.set_closure("created", Self::created)?;
+            fields.set_closure("accessed", Self::accessed)?;
+            fields.set_closure("readonly", |this: &Self| this.permissions().readonly())?;
 
             Ok(())
         }
 
         fn methods(mt: UserdataRegistry<Self>) -> Result<()> {
-            mt.register("len", Self::len)?;
-            mt.register("is_dir", Self::is_dir)?;
-            mt.register("is_file", Self::is_file)?;
-            mt.register("is_symlink", Self::is_symlink)?;
+            mt.set_closure("len", Self::len)?;
+            mt.set_closure("is_dir", Self::is_dir)?;
+            mt.set_closure("is_file", Self::is_file)?;
+            mt.set_closure("is_symlink", Self::is_symlink)?;
 
             Ok(())
         }
@@ -46,52 +46,58 @@ pub mod path {
 
     pub fn init(s: &LuaState) -> Result<LuaTable> {
         let t = s.new_table_with_size(0, 8)?;
-        t.register("dirname", Path::parent)?;
-        t.register("exists", Path::exists)?;
-        t.register("abspath", std::fs::canonicalize::<&str>)?;
-        t.register("isabs", Path::is_absolute)?;
-        t.register("isdir", Path::is_dir)?;
-        t.register("isfile", Path::is_file)?;
-        t.register("issymlink", Path::is_symlink)?;
-        t.register("basename", Path::file_name)?;
-        t.register("withext", Path::with_extension::<&str>)?;
-        t.register("withfilename", Path::with_file_name::<&str>)?;
-        t.register1("split", |_, path: &str| {
-            Path::new(path)
-                .parent()
-                .and_then(Path::to_str)
-                .map(|dir| {
-                    let name = &path[dir.len()..];
-                    (dir, name.trim_start_matches('\\'))
-                })
-                .ok_or(())
-        })?;
-        t.register1("splitext", |_, path: &str| {
-            Path::new(path)
-                .extension()
-                .and_then(std::ffi::OsStr::to_str)
-                .map(|ext| {
-                    let p = &path[..path.len() - ext.len()];
-                    (p.trim_end_matches('.'), ext)
-                })
-                .unwrap_or_else(|| (path, ""))
-        })?;
-        t.register("copy", std::fs::copy::<&str, &str>)?;
-        t.register("rename", std::fs::rename::<&str, &str>)?;
-        t.register("removedir", std::fs::remove_dir::<&str>)?;
-        t.register("removefile", std::fs::remove_file::<&str>)?;
-        // t.register("softlink", std::fs::soft_link::<&str, &str>)?;
-        t.register("hardlink", std::fs::hard_link::<&str, &str>)?;
-        t.register("readlink", Path::read_link)?;
-        t.register("meta", Path::metadata)?;
-        t.register("join", |s: &LuaState, path: &Path, args: MultiRet<&str>| {
+        t.set_closure("dirname", Path::parent)?;
+        t.set_closure("exists", Path::exists)?;
+        t.set_closure("abspath", std::fs::canonicalize::<&str>)?;
+        t.set_closure("isabs", Path::is_absolute)?;
+        t.set_closure("isdir", Path::is_dir)?;
+        t.set_closure("isfile", Path::is_file)?;
+        t.set_closure("issymlink", Path::is_symlink)?;
+        t.set_closure("basename", Path::file_name)?;
+        t.set_closure("withext", Path::with_extension::<&str>)?;
+        t.set_closure("withfilename", Path::with_file_name::<&str>)?;
+        t.set(
+            "split",
+            s.new_closure1(|_, path: &str| {
+                Path::new(path)
+                    .parent()
+                    .and_then(Path::to_str)
+                    .map(|dir| {
+                        let name = &path[dir.len()..];
+                        (dir, name.trim_start_matches('\\'))
+                    })
+                    .ok_or(())
+            })?,
+        )?;
+        t.set(
+            "splitext",
+            s.new_closure1(|_, path: &str| {
+                Path::new(path)
+                    .extension()
+                    .and_then(std::ffi::OsStr::to_str)
+                    .map(|ext| {
+                        let p = &path[..path.len() - ext.len()];
+                        (p.trim_end_matches('.'), ext)
+                    })
+                    .unwrap_or_else(|| (path, ""))
+            })?,
+        )?;
+        t.set_closure("copy", std::fs::copy::<&str, &str>)?;
+        t.set_closure("rename", std::fs::rename::<&str, &str>)?;
+        t.set_closure("removedir", std::fs::remove_dir::<&str>)?;
+        t.set_closure("removefile", std::fs::remove_file::<&str>)?;
+        // t.set_closure("softlink", std::fs::soft_link::<&str, &str>)?;
+        t.set_closure("hardlink", std::fs::hard_link::<&str, &str>)?;
+        t.set_closure("readlink", Path::read_link)?;
+        t.set_closure("metadata", Path::metadata)?;
+        t.set_closure("join", |s: &LuaState, path: &Path, args: MultiRet<&str>| {
             let mut buf = path.to_path_buf();
             for n in args.0 {
                 buf = buf.join(n);
             }
             buf
         })?;
-        t.register("exepath", std::env::current_exe)?;
+        t.set_closure("exepath", std::env::current_exe)?;
 
         Ok(t)
     }
@@ -139,6 +145,12 @@ pub mod time {
         }
     }
 
+    impl ToLua for Duration {
+        fn to_lua<'a>(self, s: &'a LuaState) -> LuaResult<ValRef<'a>> {
+            self.as_secs_f64().to_lua(s)
+        }
+    }
+
     impl<'a> FromLua<'a> for Duration {
         fn from_lua(s: &'a LuaState, val: ValRef<'a>) -> Option<Self> {
             Some(match val.into_value() {
@@ -149,6 +161,16 @@ pub mod time {
                 _ => return None,
             })
         }
+    }
+
+    pub fn init(lua: &LuaState) -> LuaResult<LuaTable> {
+        let t = lua.new_table()?;
+
+        t.set_closure("now", SystemTime::now)?;
+        t.set_closure("ms", Duration::from_millis)?;
+        t.set_closure("ns", Duration::from_nanos)?;
+
+        Ok(t)
     }
 }
 
@@ -242,13 +264,13 @@ pub mod process {
         type Trans = RefCell<Self>;
 
         fn getter(fields: UserdataRegistry<Self>) -> LuaResult<()> {
-            fields.add("id", Child::id)?;
+            fields.add("id", Self::id)?;
 
             Ok(())
         }
 
         fn methods(mt: UserdataRegistry<Self>) -> Result<()> {
-            mt.add_mut("kill", Child::kill)?;
+            mt.add_mut("kill", Self::kill)?;
             mt.add_mut("wait", Self::wait)?;
 
             mt.add_mut("try_wait", |this: &mut Self| {
@@ -314,13 +336,13 @@ pub fn extend_os(s: &LuaState) -> Result<()> {
     os.set("dllextension", std::env::consts::DLL_EXTENSION)?;
     os.set("pointersize", core::mem::size_of::<usize>())?;
 
-    os.register("mkdir", std::fs::create_dir::<&str>)?;
-    os.register("mkdirs", std::fs::create_dir_all::<&str>)?;
-    os.register("rmdir", std::fs::remove_dir::<&str>)?;
+    os.set_closure("mkdir", std::fs::create_dir::<&str>)?;
+    os.set_closure("mkdirs", std::fs::create_dir_all::<&str>)?;
+    os.set_closure("rmdir", std::fs::remove_dir::<&str>)?;
 
-    os.register("chdir", std::env::set_current_dir::<&str>)?;
-    os.register("getcwd", std::env::current_dir)?;
-    os.register("getexe", std::env::current_exe)?;
+    os.set_closure("chdir", std::env::set_current_dir::<&str>)?;
+    os.set_closure("getcwd", std::env::current_dir)?;
+    os.set_closure("getexe", std::env::current_exe)?;
 
     impl ToLua for OsString {
         fn to_lua<'a>(self, s: &'a LuaState) -> LuaResult<ValRef<'a>> {
@@ -353,13 +375,13 @@ pub fn extend_os(s: &LuaState) -> Result<()> {
         }
     }
 
-    os.register("read_dir", |path: &str| {
+    os.set_closure("read_dir", |path: &str| {
         LuaResult::Ok(StaticIter::from(
             std::fs::read_dir(path).lua_result()?.flatten(),
         ))
     })?;
 
-    os.register("glob", |pattern: &str| {
+    os.set_closure("glob", |pattern: &str| {
         use glob::MatchOptions;
 
         glob::glob_with(
@@ -372,8 +394,8 @@ pub fn extend_os(s: &LuaState) -> Result<()> {
         .map(|iter| StaticIter::from(iter.filter_map(StdResult::ok)))
     })?;
 
-    os.register("env", std::env::var::<&str>)?;
-    os.register("putenv", |s: &LuaState, var: &str, val: Option<&str>| {
+    os.set_closure("env", std::env::var::<&str>)?;
+    os.set_closure("putenv", |s: &LuaState, var: &str, val: Option<&str>| {
         if let Some(val) = val {
             std::env::set_var(var, val);
         } else {
@@ -404,14 +426,12 @@ pub fn extend_os(s: &LuaState) -> Result<()> {
             });
         Ok(cmd)
     }
-    os.register("command", |s: &LuaState, arg: LuaValue| match arg {
-        LuaValue::String(cmd) => Ok(Command::new(
-            cmd.to_str_lossy().unwrap_or_default().as_ref(),
-        )),
+    os.set_closure("command", |s: &LuaState, arg: LuaValue| match arg {
+        LuaValue::String(cmd) => Ok(Command::new(cmd.to_string_lossy().as_ref())),
         LuaValue::Table(t) => init_command(t),
         _ => Err("string|table").convert_error(),
     })?;
-    os.register("spawn_child", |arg| init_command(arg)?.spawn().lua_result())?;
+    os.set_closure("spawn_child", |arg| init_command(arg)?.spawn().lua_result())?;
 
     Ok(())
 }
@@ -419,30 +439,36 @@ pub fn extend_os(s: &LuaState) -> Result<()> {
 pub fn extend_string(s: &LuaState) -> Result<()> {
     let string: LuaTable = s.global().get("string")?.try_into()?;
 
-    string.register1("to_utf16", |s: &LuaState, t: &str| unsafe {
-        let mut r = t.encode_utf16().collect::<Vec<_>>();
-        r.push(0);
-        s.new_val(core::slice::from_raw_parts(
-            r.as_ptr() as *const u8,
-            r.len() * 2 - 1,
-        ))
-    })?;
-    string.register("from_utf16", |t: &[u8]| unsafe {
-        let u = core::slice::from_raw_parts(t.as_ptr() as *const u16, t.len() / 2);
-        String::from_utf16_lossy(u)
-    })?;
-    string.register("starts_with", str::starts_with::<&str>)?;
-    string.register("ends_with", str::ends_with::<&str>)?;
-    string.register("equal", |t1: &str, t2: &str, case_sensitive: bool| {
+    string.set(
+        "to_utf16",
+        s.new_closure1(|s: &LuaState, t: &str| unsafe {
+            let mut r = t.encode_utf16().collect::<Vec<_>>();
+            r.push(0);
+            s.new_val(core::slice::from_raw_parts(
+                r.as_ptr() as *const u8,
+                r.len() * 2 - 1,
+            ))
+        })?,
+    )?;
+    string.set(
+        "from_utf16",
+        s.new_closure1(|_, t: &[u8]| unsafe {
+            let u = core::slice::from_raw_parts(t.as_ptr() as *const u16, t.len() / 2);
+            String::from_utf16_lossy(u)
+        })?,
+    )?;
+    string.set_closure("starts_with", str::starts_with::<&str>)?;
+    string.set_closure("ends_with", str::ends_with::<&str>)?;
+    string.set_closure("equal", |t1: &str, t2: &str, case_sensitive: bool| {
         if case_sensitive {
             t1.eq(t2)
         } else {
             t1.eq_ignore_ascii_case(t2)
         }
     })?;
-    string.register("trim", str::trim)?;
-    string.register("trim_start", str::trim_start)?;
-    string.register("trim_end", str::trim_end)?;
+    string.set_closure("trim", str::trim)?;
+    string.set_closure("trim_start", str::trim_start)?;
+    string.set_closure("trim_end", str::trim_end)?;
 
     impl FromLua<'_> for glob::Pattern {
         fn from_lua(s: &LuaState, val: ValRef) -> Option<Self> {
@@ -450,7 +476,7 @@ pub fn extend_string(s: &LuaState) -> Result<()> {
         }
     }
 
-    string.register(
+    string.set_closure(
         "wildmatch",
         |t1: &str, pattern: glob::Pattern, case_sensitive: bool| {
             let options = glob::MatchOptions {
@@ -495,11 +521,11 @@ mod thread {
         type Trans = RefCell<Self>;
 
         fn getter(fields: UserdataRegistry<Self>) -> Result<()> {
-            fields.register("handle", |this: Ref<Self>| this.handle as usize)?;
-            fields.register1("name", |s, this: Ref<Self>| {
+            fields.set_closure("handle", |this: Ref<Self>| this.handle as usize)?;
+            fields.add_method("name", |s, this, ()| {
                 s.new_val(this.get().map(|j| j.thread().name()).lua_result()?)
             })?;
-            fields.register("id", |this: Ref<Self>| {
+            fields.set_closure("id", |this: Ref<Self>| {
                 this.get().map(|j| j.thread().id().as_u64().get())
             })?;
 
@@ -507,7 +533,7 @@ mod thread {
         }
 
         fn methods(mt: UserdataRegistry<Self>) -> Result<()> {
-            mt.register("join", |mut this: RefMut<Self>| {
+            mt.set_closure("join", |mut this: RefMut<Self>| {
                 this.join
                     .take()
                     .ok_or("thread joined")
@@ -515,7 +541,7 @@ mod thread {
                     .join()
                     .map_err(LuaError::runtime_debug)
             })?;
-            mt.register("unpark", |this: Ref<Self>| {
+            mt.set_closure("unpark", |this: Ref<Self>| {
                 this.get().map(|j| j.thread().unpark())
             })?;
 
@@ -536,7 +562,7 @@ mod thread {
         const TYPE_NAME: &'static str = "LuaMutexGaurd";
 
         fn methods(methods: UserdataRegistry<Self>) -> LuaResult<()> {
-            methods.register("unlock", |this: ValRef| this.close_userdata())?;
+            methods.set_closure("unlock", LuaUserData::close)?;
             Ok(())
         }
     }
@@ -547,10 +573,10 @@ mod thread {
         fn methods(mt: UserdataRegistry<Self>) -> Result<()> {
             mt.as_deref()
                 .add_deref("is_poisoned", Mutex::<()>::is_poisoned)?;
-            mt.register1("lock", |s, this: &Self| {
+            mt.add_method("lock", |s, this, ()| {
                 s.new_userdata_with_values(LuaMutexGaurd(this.0.lock().lua_result()?), [ArgRef(1)])
             })?;
-            mt.register1("try_lock", |s, this: &Self| {
+            mt.add_method("try_lock", |s, this, ()| {
                 NilError(
                     this.0
                         .try_lock()
@@ -574,13 +600,11 @@ mod thread {
         const TYPE_NAME: &'static str = "LuaCondVar";
 
         fn methods(mt: UserdataRegistry<Self>) -> Result<()> {
-            mt.register2("wait", |s: &LuaState, this: &Self, tm: Option<u64>| {
-                this.wait(s, tm)
-            })?;
-            mt.register("notify_one", |s: &LuaState, this: &Self, val: ValRef| {
+            mt.add_method("wait", |s, this, tm: Option<u64>| this.wait(s, tm))?;
+            mt.add_method("notify_one", |s, this, val: ValRef| {
                 this.push_some(s, val).map(|_| this.cvar.notify_one())
             })?;
-            mt.register("notify_all", |s: &LuaState, this: &Self, val: ValRef| {
+            mt.add_method("notify_all", |s, this, val: ValRef| {
                 this.push_some(s, val).map(|_| this.cvar.notify_all())
             })?;
 
@@ -620,7 +644,7 @@ mod thread {
 
     pub fn init(s: &LuaState) -> Result<LuaTable> {
         let t = s.new_table_with_size(0, 4)?;
-        t.register("spawn", |routine: Coroutine, name: Option<&str>| {
+        t.set_closure("spawn", |routine: Coroutine, name: Option<&str>| {
             thread::Builder::new()
                 .name(name.unwrap_or("<lua>").into())
                 .spawn(move || {
@@ -647,15 +671,18 @@ mod thread {
                     }
                 })
         })?;
-        t.register("sleep", |time: u64| {
+        t.set_closure("sleep", |time: u64| {
             thread::sleep(Duration::from_millis(time))
         })?;
-        t.register("park", thread::park)?;
-        t.register("id", || thread::current().id().as_u64().get())?;
-        t.register0("name", |s: &LuaState| s.new_val(thread::current().name()))?;
-        t.register("yield_now", thread::yield_now)?;
-        t.register("mutex", LuaMutex::default)?;
-        t.register("condvar", LuaCondVar::default)?;
+        t.set_closure("park", thread::park)?;
+        t.set_closure("id", || thread::current().id().as_u64().get())?;
+        t.set_closure("yield_now", thread::yield_now)?;
+        t.set_closure("mutex", LuaMutex::default)?;
+        t.set_closure("condvar", LuaCondVar::default)?;
+        t.set(
+            "name",
+            s.new_closure0(|s| s.new_val(thread::current().name()))?,
+        )?;
 
         Ok(t)
     }
@@ -668,7 +695,7 @@ pub fn init_global(s: &LuaState) -> Result<()> {
     s.register_module("thread", thread::init, true)?;
 
     let g = s.global();
-    g.register("readfile", |path: &str| {
+    g.set_closure("readfile", |path: &str| {
         NilError(std::fs::read(path).map(LuaBytes))
     })?;
     g.set(
@@ -687,7 +714,7 @@ pub fn init_global(s: &LuaState) -> Result<()> {
             })
         })?,
     )?;
-    g.register("writefile", std::fs::write::<&std::path::Path, &[u8]>)?;
+    g.set_closure("writefile", std::fs::write::<&std::path::Path, &[u8]>)?;
 
     Ok(())
 }

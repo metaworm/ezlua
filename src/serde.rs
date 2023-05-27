@@ -843,8 +843,8 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
         }
 
         // crash if index is not a table
-        if self.is_table() {
-            visitor.visit_map(ValIter(self.iter().map_err(DeErr::custom)?, None))
+        if let Some(t) = self.as_table() {
+            visitor.visit_map(ValIter(t.iter().map_err(DeErr::custom)?, None))
         } else {
             Err(DesErr::ExpectedMap)
         }
@@ -1065,7 +1065,7 @@ impl Serialize for ValRef<'_> {
                             serializer.serialize_seq(Some(len))?.end()
                         } else {
                             let mut map = serializer.serialize_map(Some(count))?;
-                            for (k, v) in self.iter().map_err(Error::custom)? {
+                            for (k, v) in t.iter().map_err(Error::custom)? {
                                 map.serialize_entry(&k, &v)?;
                             }
                             map.end()

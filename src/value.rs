@@ -21,12 +21,6 @@ pub struct ValRef<'a> {
     pub(crate) index: Index,
 }
 
-impl<'a> AsRef<ValRef<'a>> for ValRef<'a> {
-    fn as_ref(&self) -> &ValRef<'a> {
-        self
-    }
-}
-
 impl Clone for ValRef<'_> {
     fn clone(&self) -> Self {
         self.state.val(self.index)
@@ -44,7 +38,7 @@ impl<'a> core::fmt::Debug for ValRef<'a> {
                 ds.field("value", &self.state.to_userdata(self.index))
             }
             Type::Number => ds.field("value", &self.to_number()),
-            Type::String => ds.field("value", &self.to_str_lossy()),
+            Type::String => ds.field("value", &self.to_string_lossy().unwrap_or_default()),
             Type::Table | Type::Thread | Type::Function => {
                 ds.field("value", &self.state.to_pointer(self.index))
             }
@@ -116,14 +110,8 @@ impl<'a> ValRef<'a> {
     }
 
     #[inline]
-    pub fn to_str_lossy(&self) -> Option<Cow<str>> {
-        self.check_type(Type::String).ok()?;
-        self.state.to_str_lossy(self.index)
-    }
-
-    #[inline]
-    pub fn to_string_lossy(&self) -> Cow<str> {
-        self.state.to_str_lossy(self.index).unwrap_or_default()
+    pub fn to_string_lossy(&self) -> Option<Cow<str>> {
+        self.state.to_string_lossy(self.index)
     }
 
     #[inline]
@@ -179,6 +167,7 @@ impl<'a> ValRef<'a> {
         self.state.top_val()
     }
 
+    /// Get length of the value, like `return #self` in lua
     #[inline]
     pub fn len(&self) -> ValRef<'a> {
         self.state.len(self.index);
@@ -186,17 +175,13 @@ impl<'a> ValRef<'a> {
     }
 
     #[inline]
-    pub fn set_field(&self, k: &CStr) {
-        self.state.set_field(self.index, k);
-    }
-
-    #[inline]
     pub fn setf<V: ToLua>(&self, k: &CStr, v: V) -> Result<()> {
         self.state.push(v)?;
-        self.set_field(k);
+        self.state.set_field(self.index, k);
         Ok(())
     }
 
+    /// Set value, equivalent to `self[k] = v` in lua
     #[inline]
     pub fn set<K: ToLua, V: ToLua>(&self, k: K, v: V) -> Result<()> {
         self.state.push(k)?;
@@ -205,6 +190,7 @@ impl<'a> ValRef<'a> {
         Ok(())
     }
 
+    /// Get value in this value, equivalent to  `return self[k]` in lua
     #[inline]
     pub fn get<K: ToLua>(&self, k: K) -> Result<ValRef<'a>> {
         self.state.push(k)?;
@@ -217,16 +203,19 @@ impl<'a> ValRef<'a> {
         Ok(self.get(k)?.cast())
     }
 
+    /// Call this value as a function
     #[inline(always)]
     pub fn pcall<T: ToLuaMulti, R: FromLuaMulti<'a>>(&self, args: T) -> Result<R> {
         self.state.pcall_trace(self.index, args)
     }
 
+    /// Invoke `pcall()` without return value
     #[inline(always)]
     pub fn pcall_void<T: ToLuaMulti>(&self, args: T) -> Result<()> {
         self.pcall(args)
     }
 
+    /// Get metatable of lua table or userdata
     pub fn metatable(&self) -> Result<Option<Table<'a>>> {
         Ok(if self.state.get_metatable(self.index) {
             Some(self.state.top_val().try_into().unwrap())
@@ -235,12 +224,14 @@ impl<'a> ValRef<'a> {
         })
     }
 
+    /// Set metatable for lua table or userdata
     pub fn set_metatable(&self, t: Table) -> Result<()> {
         self.state.pushval(t.0);
         self.state.set_metatable(self.index);
         Ok(())
     }
 
+    /// Call a metamethod
     #[inline(always)]
     pub fn call_metamethod<T: ToLuaMulti, R: FromLuaMulti<'a>>(
         &self,
@@ -251,11 +242,6 @@ impl<'a> ValRef<'a> {
             .ok_or_else(|| Error::runtime("no metatable"))?
             .raw_get(m)?
             .pcall(args)
-    }
-
-    #[inline(always)]
-    pub fn close_userdata(self) -> Result<()> {
-        self.call_metamethod("__close", ArgRef(self.index))
     }
 
     pub fn checked_into_value(self) -> Option<Value<'a>> {
@@ -305,24 +291,7 @@ impl<'a> ValRef<'a> {
         }
     }
 
-    pub fn iter<'t>(&'t self) -> Result<ValIter<'a, &'t Self>> {
-        self.check_type(Type::Table)?;
-        Ok(ValIter {
-            val: self,
-            key: Some(self.state.new_val(())?),
-        })
-    }
-
-    pub fn into_iter(self) -> Result<ValIter<'a, Self>> {
-        self.check_type(Type::Table)?;
-        let key = self.state.new_val(())?;
-        Ok(ValIter {
-            val: self,
-            key: Some(key),
-        })
-    }
-
-    /// return Some(self) if type is neither Type::Invalid nor Type::None
+    /// Return Some(self) if type is neither Type::Invalid nor Type::None
     pub fn check_valid(self) -> Option<Self> {
         match self.type_of() {
             Type::Invalid | Type::None => None,
@@ -343,25 +312,22 @@ impl<'a> ValRef<'a> {
 }
 
 /// Iterator for table traversing, like `pairs` in lua
-pub struct ValIter<'a, V: AsRef<ValRef<'a>>> {
+pub struct TableIter<'a, V: AsRef<Table<'a>>> {
     val: V,
     key: Option<ValRef<'a>>,
 }
 
-impl<'a, V: AsRef<ValRef<'a>>> Iterator for ValIter<'a, V> {
+impl<'a, V: AsRef<Table<'a>>> Iterator for TableIter<'a, V> {
     type Item = (ValRef<'a>, ValRef<'a>);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.key.take().expect("next key must exists").ensure_top();
-        let val = self.val.as_ref();
-        if val.state.next(val.index) {
-            let (k, val) = if let Some(val) = val.state.try_replace_top() {
+        let t = self.val.as_ref();
+        if t.state.next(t.index) {
+            let (k, val) = if let Some(val) = t.state.try_replace_top() {
                 (val.state.top_val(), val)
             } else {
-                (
-                    val.state.val_without_push(-2),
-                    val.state.val_without_push(-1),
-                )
+                (t.state.val_without_push(-2), t.state.val_without_push(-1))
             };
             let key = k.clone();
             self.key.replace(k);
@@ -372,7 +338,7 @@ impl<'a, V: AsRef<ValRef<'a>>> Iterator for ValIter<'a, V> {
     }
 }
 
-/// Enumeration for lua value
+/// Typed enumeration for lua value
 #[derive(Debug, Clone, Default)]
 pub enum Value<'a> {
     None,
@@ -400,18 +366,23 @@ impl<'a> Value<'a> {
     }
 }
 
+/// Represents a lua table on the stack
 #[derive(Debug, Clone, derive_more::Deref)]
 pub struct Table<'l>(pub(crate) ValRef<'l>);
 
+/// Represents a lua function on the stack
 #[derive(Debug, Clone, derive_more::Deref)]
 pub struct Function<'l>(pub(crate) ValRef<'l>);
 
+/// Represents a lua string on the stack
 #[derive(Debug, Clone, derive_more::Deref)]
 pub struct LuaString<'l>(pub(crate) ValRef<'l>);
 
+/// Represents a lua thread on the stack
 #[derive(Debug, Clone, derive_more::Deref)]
 pub struct LuaThread<'l>(pub(crate) ValRef<'l>);
 
+/// Represents a lua userdata on the stack
 #[derive(Debug, Clone, derive_more::Deref)]
 pub struct LuaUserData<'l>(pub(crate) ValRef<'l>);
 
@@ -474,13 +445,15 @@ impl_wrap!(LuaString<'a>, Type::String, as_string);
 impl_wrap!(LuaThread<'a>, Type::Thread, as_thread);
 impl_wrap!(LuaUserData<'a>, Type::Userdata, as_userdata);
 
-impl<'a> Table<'a> {
+impl<'l> Table<'l> {
+    /// Get value with a lightuserdata key, commonly is a function pointer
     #[inline]
     pub fn getp<T>(&self, p: *const T) -> ValRef {
         self.state.raw_getp(self.index, p);
         self.state.top_val()
     }
 
+    /// Set value with a lightuserdata key
     #[inline]
     pub fn setp<T, V: ToLua>(&self, k: *const T, v: V) -> Result<()> {
         self.state.push(v)?;
@@ -499,6 +472,7 @@ impl<'a> Table<'a> {
         self.state.unreference(self.index, r);
     }
 
+    /// Count of the table entries
     pub fn entry_count(&self) -> usize {
         let mut count = 0usize;
         self.state.push_nil();
@@ -509,12 +483,31 @@ impl<'a> Table<'a> {
         count
     }
 
+    /// Iterator to the table entries
+    pub fn iter<'t>(&'t self) -> Result<TableIter<'l, &'t Self>> {
+        Ok(TableIter {
+            val: self,
+            key: Some(self.state.new_val(())?),
+        })
+    }
+
+    /// Like `iter()`, but take the ownership
+    pub fn into_iter(self) -> Result<TableIter<'l, Self>> {
+        let key = self.state.new_val(())?;
+        Ok(TableIter {
+            val: self,
+            key: Some(key),
+        })
+    }
+
+    /// Get value by number index without metamethod triggers
     #[inline]
-    pub fn raw_geti(&self, i: impl Into<lua_Integer>) -> ValRef<'a> {
+    pub fn raw_geti(&self, i: impl Into<lua_Integer>) -> ValRef<'l> {
         self.state.raw_geti(self.index, i.into());
         self.state.top_val()
     }
 
+    /// Set value by number index without metamethod triggers
     #[inline]
     pub fn raw_seti<V: ToLua>(&self, i: impl Into<lua_Integer>, v: V) -> Result<()> {
         self.state.push(v)?;
@@ -522,13 +515,15 @@ impl<'a> Table<'a> {
         Ok(())
     }
 
+    /// Get value by any key without metamethod triggers
     #[inline]
-    pub fn raw_get<K: ToLua>(&self, k: K) -> Result<ValRef<'a>> {
+    pub fn raw_get<K: ToLua>(&self, k: K) -> Result<ValRef<'l>> {
         self.state.push(k)?;
         self.state.raw_get(self.index);
         Ok(self.state.top_val())
     }
 
+    /// Set value by any key without metamethod triggers
     #[inline]
     pub fn raw_set<K: ToLua, V: ToLua>(&self, k: K, v: V) -> Result<()> {
         self.state.push(k)?;
@@ -537,6 +532,7 @@ impl<'a> Table<'a> {
         Ok(())
     }
 
+    /// Get length of the table without metamethod triggers
     #[inline]
     pub fn raw_len(&self) -> usize {
         self.state.raw_len(self.index)
@@ -564,6 +560,21 @@ impl<'a> Table<'a> {
     pub fn pairs(&self) -> Result<impl Iterator<Item = (Value, Value)>> {
         Ok(self.iter()?.map(|(k, v)| (k.into_value(), v.into_value())))
     }
+
+    #[inline(always)]
+    pub fn set_closure<
+        'a,
+        K: ToLua,
+        A: FromLuaMulti<'a> + core::marker::Tuple,
+        R: ToLuaMulti + 'a,
+        F: Fn<A, Output = R> + 'static,
+    >(
+        &self,
+        k: K,
+        v: F,
+    ) -> Result<&Self> {
+        self.raw_set(k, self.state.new_closure(v)?).map(|_| self)
+    }
 }
 
 impl<'a> Function<'a> {
@@ -585,6 +596,19 @@ impl<'a> Function<'a> {
         self.state.push(val)?;
         self.state.set_upvalue(self.index, i);
         Ok(())
+    }
+}
+
+impl<'a> AsRef<Table<'a>> for Table<'a> {
+    fn as_ref(&self) -> &Table<'a> {
+        self
+    }
+}
+
+impl<'a> LuaString<'a> {
+    #[inline]
+    pub fn to_string_lossy(&self) -> Cow<str> {
+        self.state.to_string_lossy(self.index).unwrap_or_default()
     }
 }
 
@@ -613,6 +637,11 @@ impl<'a> LuaUserData<'a> {
     pub fn get_iuservalue(&self, n: i32) -> Result<ValRef<'a>> {
         self.state.get_iuservalue(self.index, n);
         Ok(self.state.top_val())
+    }
+
+    #[inline(always)]
+    pub fn close(self) -> Result<()> {
+        self.call_metamethod("__close", ArgRef(self.index))
     }
 
     #[inline(always)]

@@ -141,7 +141,13 @@ impl State {
     }
 
     /// Maps to `lua_pcallk`.
-    pub fn pcallk<F>(&self, nargs: c_int, nresults: c_int, msgh: c_int, continuation: F) -> c_int
+    pub(crate) fn pcallk<F>(
+        &self,
+        nargs: c_int,
+        nresults: c_int,
+        msgh: c_int,
+        continuation: F,
+    ) -> c_int
     where
         F: FnOnce(&State, ThreadStatus) -> c_int,
     {
@@ -158,13 +164,13 @@ impl State {
     }
 
     /// Maps to `lua_yield`.
-    pub fn r#yield(&self, nresults: c_int) -> ! {
+    pub(crate) fn r#yield(&self, nresults: c_int) -> ! {
         unsafe { ffi::lua_yield(self.as_ptr(), nresults) };
         panic!("co_yieldk called in non-coroutine context; check is_yieldable first")
     }
 
     /// Maps to `lua_yieldk`.
-    pub fn yieldk<F>(&self, nresults: c_int, continuation: F) -> !
+    pub(crate) fn yieldk<F>(&self, nresults: c_int, continuation: F) -> !
     where
         F: FnOnce(&State, ThreadStatus) -> c_int,
     {
@@ -173,6 +179,7 @@ impl State {
         panic!("co_yieldk called in non-coroutine context; check is_yieldable first")
     }
 
+    /// Bind a rust async function(closure) with flexible argument types
     #[inline(always)]
     pub fn async_closure<
         'l,
@@ -181,14 +188,15 @@ impl State {
         FUT: Future<Output = R> + Send + 'l,
         F: Fn<A, Output = FUT> + Sync + Send + 'static,
     >(
-        &'l self,
+        &self,
         fun: F,
-    ) -> Result<ValRef> {
-        self.to_async_closure_wrapper(move |s, base| Result::Ok(fun.call(A::from_lua(s, base)?)))
+    ) -> Result<Function> {
+        self.bind_async_closure(move |s, base| Result::Ok(fun.call(A::from_lua_multi(s, base)?)))
     }
 
+    #[doc(hidden)]
     #[inline(always)]
-    fn to_async_closure_wrapper<
+    pub fn bind_async_closure<
         'l,
         R: ToLuaMulti + 'l,
         FUT: Future<Output = R> + Send + 'l,
@@ -196,7 +204,7 @@ impl State {
     >(
         &self,
         f: F,
-    ) -> Result<ValRef> {
+    ) -> Result<Function> {
         if core::mem::size_of::<F>() == 0 {
             self.push_cclosure(Some(async_closure_wrapper::<R, FUT, F>), 0);
         } else {
@@ -207,7 +215,7 @@ impl State {
             self.set_metatable(-2);
             self.push_cclosure(Some(async_closure_wrapper::<R, FUT, F>), 1);
         }
-        Ok(self.top_val())
+        self.top_val().try_into()
     }
 
     /// not stack-balance

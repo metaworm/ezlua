@@ -90,7 +90,7 @@ impl Coroutine {
                 let fidx = self.get_top() - self.nres;
                 self.set_top(fidx + R::COUNT as i32);
                 self.nres = R::COUNT as i32;
-                R::from_lua(self, self.abs_index(-(R::COUNT as i32)))
+                R::from_lua_multi(self, self.abs_index(-(R::COUNT as i32)))
             }
             err => Err(self.status_to_error(err).unwrap_err()),
         }

@@ -13,17 +13,17 @@ impl UserData for Test {
     type Trans = RefCell<Self>;
 
     fn methods(mt: UserdataRegistry<Self>) -> LuaResult<()> {
-        mt.register("inc", |mut this: RefMut<Self>| this.a += 1)?;
+        mt.set_closure("inc", |mut this: RefMut<Self>| this.a += 1)?;
         Ok(())
     }
 
     fn getter(fields: UserdataRegistry<Self>) -> LuaResult<()> {
-        fields.register("a", |this: Ref<Self>| this.a)?;
+        fields.set_closure("a", |this: Ref<Self>| this.a)?;
         Ok(())
     }
 
     fn setter(fields: UserdataRegistry<Self>) -> LuaResult<()> {
-        fields.register("a", |mut this: RefMut<Self>, val: i32| this.a = val)?;
+        fields.set_closure("a", |mut this: RefMut<Self>, val: i32| this.a = val)?;
         Ok(())
     }
 }
@@ -37,7 +37,7 @@ impl UserData for RcTest {
     }
 
     fn getter(fields: UserdataRegistry<Self>) -> LuaResult<()> {
-        fields.register("a", |this: &Self| this.a)?;
+        fields.set_closure("a", |this: &Self| this.a)?;
         Ok(())
     }
 
@@ -55,9 +55,9 @@ fn userdata() {
 
     s.global().set("uv", uv).unwrap();
     let test_value = 0x11223344;
-    s.global().register("test", move || test_value).unwrap();
+    s.global().set_closure("test", move || test_value).unwrap();
     s.global()
-        .register("toiter", || StaticIter::new(0..3))
+        .set_closure("toiter", || StaticIter::new(0..3))
         .unwrap();
     s.do_string(
         r#"
@@ -104,11 +104,11 @@ fn serde() {
     };
     global.set("test", SerdeValue(test.clone())).unwrap();
     global
-        .register("print_test", |SerdeValue::<Test>(x)| std::println!("{x:?}"))
+        .set_closure("print_test", |SerdeValue::<Test>(x)| std::println!("{x:?}"))
         .unwrap();
     let test1 = test.clone();
     global
-        .register("assert_test", move |SerdeValue::<Test>(x)| {
+        .set_closure("assert_test", move |SerdeValue::<Test>(x)| {
             assert_eq!(test1, x)
         })
         .unwrap();
@@ -257,7 +257,7 @@ fn stack_balance() {
 fn table_iter() {
     let s = Lua::with_open_libs();
     let g = s.global();
-    let table = g.get("table").unwrap();
+    let table: LuaTable = g.get("table").unwrap().try_into().unwrap();
     table.set("bb", false).unwrap();
 
     #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
@@ -293,7 +293,7 @@ fn table_iter() {
         let t = table.deserialize::<Test>().unwrap();
         std::println!("table deserialize: {t:?}");
         for (k, v) in table.iter().unwrap() {
-            if v.type_of() == LuaType::Table {
+            if let Some(v) = v.as_table() {
                 for (k, v) in v.iter().unwrap() {
                     k.check_type(LuaType::Number).unwrap();
                     v.check_type(LuaType::Number).unwrap();
@@ -374,13 +374,13 @@ fn convert() {
     let s = Lua::with_open_libs();
 
     s.global()
-        .register1("test", |_, args: MultiRet<i32>| {
+        .set_closure("test", |args: MultiRet<i32>| {
             args.0.get(0).copied().ok_or(())
         })
         .unwrap()
-        .register("readfile", |file: &str| NilError(std::fs::read(file)))
+        .set_closure("readfile", |file: &str| NilError(std::fs::read(file)))
         .unwrap()
-        .register("itervec", |n: i32| IterVec(0..n))
+        .set_closure("itervec", |n: i32| IterVec(0..n))
         .unwrap();
 
     s.do_string(
@@ -413,8 +413,12 @@ fn convert_closure() {
     g.set("magic", magic).unwrap();
     g.set("closure", s.new_closure(move || magic).unwrap())
         .unwrap();
-    g.register1("tostr", |_, b: &[u8]| String::from_utf8_lossy(b))
-        .unwrap();
+    g.set(
+        "tostr",
+        s.new_closure1(|_, b: &[u8]| String::from_utf8_lossy(b))
+            .unwrap(),
+    )
+    .unwrap();
 
     s.do_string(
         r"

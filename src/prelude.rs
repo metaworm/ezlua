@@ -9,5 +9,6 @@ pub use crate::marker::*;
 pub use crate::state::State as LuaState;
 pub use crate::userdata::{UserData, UserdataRegistry};
 pub use crate::value::{
-    Function as LuaFunction, LuaString, Table as LuaTable, ValRef, Value as LuaValue,
+    Function as LuaFunction, LuaString, LuaThread, LuaUserData, Table as LuaTable, ValRef,
+    Value as LuaValue,
 };

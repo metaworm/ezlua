@@ -36,6 +36,7 @@ unsafe impl Send for State {}
 unsafe impl Sync for State {}
 
 impl State {
+    /// Load lua script and execute it
     #[inline]
     pub fn do_string<S: AsRef<[u8]>>(&self, script: S, name: Option<&str>) -> Result<()> {
         self.load(script, name)?.pcall_void(())
@@ -126,7 +127,7 @@ pub mod unsafe_impl {
 
     use super::*;
     use crate::{
-        luaapi::UnsafeLuaApi,
+        luaapi::{GcOption, UnsafeLuaApi},
         value::{Function, LuaString, Table},
     };
 
@@ -241,6 +242,7 @@ pub mod unsafe_impl {
             }
         }
 
+        /// Get the C registry table
         #[inline(always)]
         pub fn registry(&self) -> Table {
             Table(ValRef {
@@ -249,6 +251,7 @@ pub mod unsafe_impl {
             })
         }
 
+        /// Create a new lua value
         #[inline(always)]
         pub fn new_val<V: ToLua>(&self, val: V) -> Result<ValRef> {
             self.check_stack(1)?;
@@ -256,11 +259,13 @@ pub mod unsafe_impl {
             Ok(self.top_val())
         }
 
+        /// Create a new lua value, return as [`Value`] rather than [`ValRef`]
         #[inline(always)]
         pub fn new_value<V: ToLua>(&self, val: V) -> Result<Value> {
             self.new_val(val).map(ValRef::into_value)
         }
 
+        /// Create a lua table and specify the size
         #[inline(always)]
         pub fn new_table_with_size(&self, narr: c_int, nrec: c_int) -> Result<Table> {
             self.check_stack(1)?;
@@ -268,7 +273,7 @@ pub mod unsafe_impl {
             Ok(self.top_val().try_into().unwrap())
         }
 
-        /// Create a table
+        /// Create a lua table
         #[inline(always)]
         pub fn new_table(&self) -> Result<Table> {
             self.new_table_with_size(0, 0)
@@ -291,8 +296,8 @@ pub mod unsafe_impl {
             Ok(self.top_val().try_into().unwrap())
         }
 
-        #[cfg(feature = "std")]
         /// Create function from script file
+        #[cfg(feature = "std")]
         #[inline]
         pub fn load_file<P: AsRef<Path>>(&self, path: P) -> Result<Function> {
             let path = path.as_ref();
@@ -302,6 +307,7 @@ pub mod unsafe_impl {
             )
         }
 
+        /// Register your own lua module, which can be load by `require` function in lua
         #[inline(always)]
         pub fn register_module<'a, F: Fn(&'a State) -> Result<Table<'a>>>(
             &self,
@@ -318,10 +324,30 @@ pub mod unsafe_impl {
             Ok(())
         }
 
+        /// Get the lua global table
         #[inline(always)]
         pub fn global(&self) -> Table {
             self.raw_geti(LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
             self.top_val().try_into().unwrap()
+        }
+
+        /// Do a full GC for lua
+        pub fn gc_collect(&self) -> Result<()> {
+            self.gc(GcOption::Collect, 0);
+
+            Ok(())
+        }
+
+        /// Stack backtrace info
+        pub fn backtrace(&self, co: Option<&State>, msg: &str, level: i32) -> String {
+            self.traceback(
+                co.map(|s| s.as_ptr()).unwrap_or(core::ptr::null_mut()),
+                CString::new(msg).unwrap().as_c_str(),
+                level,
+            );
+            let result = self.to_string_lossy(-1).unwrap_or_default().into_owned();
+            self.pop(1);
+            result
         }
 
         /// [-0, +1, -]
@@ -385,7 +411,7 @@ pub mod unsafe_impl {
                 let thread = s.unwrap_or(self);
                 luaL_traceback(self.state, thread.state, err.as_ptr() as *const c_char, 0);
             }
-            self.to_str_lossy(-1).unwrap_or_default()
+            self.to_string_lossy(-1).unwrap_or_default()
         }
 
         #[inline(always)]
@@ -397,17 +423,6 @@ pub mod unsafe_impl {
             let result = callback(self);
             self.set_top(top);
             self.drop_slots_greater(top);
-            result
-        }
-
-        pub fn backtrace(&self, co: Option<&State>, msg: &str, level: i32) -> String {
-            self.traceback(
-                co.map(|s| s.as_ptr()).unwrap_or(core::ptr::null_mut()),
-                CString::new(msg).unwrap().as_c_str(),
-                level,
-            );
-            let result = self.to_str_lossy(-1).unwrap_or_default().into_owned();
-            self.pop(1);
             result
         }
 
@@ -427,14 +442,6 @@ pub mod unsafe_impl {
             self.error_string(format!("{e:?}"))
         }
 
-        pub fn gc_collect(&self) -> Result<()> {
-            use crate::luaapi::GcOption;
-
-            self.gc(GcOption::Collect, 0);
-
-            Ok(())
-        }
-
         pub unsafe extern "C" fn traceback_c(l: *mut lua_State) -> i32 {
             luaL_traceback(l, l, lua_tostring(l, 1), 1);
             1
@@ -445,7 +452,7 @@ pub mod unsafe_impl {
                 ThreadStatus::Ok => Ok(()),
                 ThreadStatus::Yield => Err(Error::Yield),
                 _ => {
-                    let err = self.to_str_lossy(-1).unwrap_or_default().into_owned();
+                    let err = self.to_string_lossy(-1).unwrap_or_default().into_owned();
                     match ts {
                         ThreadStatus::RuntimeError | ThreadStatus::MessageHandlerError => {
                             Err(Error::runtime(err))
@@ -473,7 +480,7 @@ pub mod unsafe_impl {
                 LUA_OK => Ok(()),
                 LUA_YIELD => Err(Error::Yield),
                 _ => {
-                    let err = self.to_str_lossy(-1).unwrap_or_default().into_owned();
+                    let err = self.to_string_lossy(-1).unwrap_or_default().into_owned();
                     match ts {
                         LUA_ERRRUN | LUA_ERRERR => Err(Error::runtime(err)),
                         // LUA_ERRGCMM => Err(Error::Gc(err)),

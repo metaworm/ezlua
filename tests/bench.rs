@@ -7,10 +7,13 @@ fn test() {
         use ezlua::prelude::*;
         let lua = Lua::with_open_libs();
         lua.global()
-            .register("add", |a: i64, b: i64| a + b)
+            .set_closure("add", |a: i64, b: i64| a + b)
             .unwrap();
         lua.global()
-            .register2("strsub", |_, s: &[u8], p: usize| &s[p..])
+            .set(
+                "strsub",
+                lua.new_closure2(|_, s: &[u8], p: usize| &s[p..]).unwrap(),
+            )
             .unwrap();
         lua.load_file("tests/bench.lua")
             .unwrap()

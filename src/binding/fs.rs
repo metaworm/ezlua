@@ -9,14 +9,14 @@ use std::{
 pub fn open(lua: &LuaState) -> LuaResult<LuaTable> {
     let module = lua.new_table()?;
 
-    module.register("chdir", std::env::set_current_dir::<&str>)?;
-    module.register("currentdir", std::env::current_dir)?;
+    module.set_closure("chdir", std::env::set_current_dir::<&str>)?;
+    module.set_closure("currentdir", std::env::current_dir)?;
 
-    module.register("dir", |dir: &str| {
+    module.set_closure("dir", |dir: &str| {
         fs::read_dir(dir).map(|iter| StaticIter::new(iter.flatten().map(|e| e.file_name())))
     })?;
 
-    module.register("link", |old: &str, new: &str, symbol: Option<bool>| {
+    module.set_closure("link", |old: &str, new: &str, symbol: Option<bool>| {
         #[allow(deprecated)]
         if symbol.unwrap_or(false) {
             fs::soft_link(old, new)
@@ -26,16 +26,16 @@ pub fn open(lua: &LuaState) -> LuaResult<LuaTable> {
         .lua_result()
     })?;
 
-    module.register("readlink", |path: &str| NilError(std::fs::read_link(path)))?;
-    module.register("copy", std::fs::copy::<&str, &str>)?;
-    module.register("rename", std::fs::rename::<&str, &str>)?;
-    module.register("removedir", std::fs::remove_dir::<&str>)?;
-    module.register("remove", std::fs::remove_file::<&str>)?;
+    module.set_closure("readlink", |path: &str| NilError(std::fs::read_link(path)))?;
+    module.set_closure("copy", std::fs::copy::<&str, &str>)?;
+    module.set_closure("rename", std::fs::rename::<&str, &str>)?;
+    module.set_closure("removedir", std::fs::remove_dir::<&str>)?;
+    module.set_closure("remove", std::fs::remove_file::<&str>)?;
 
-    module.register("mkdir", std::fs::create_dir::<&str>)?;
-    module.register("mkdirs", std::fs::create_dir_all::<&str>)?;
-    module.register("rmdir", std::fs::remove_dir::<&str>)?;
-    module.register("rmdir_all", std::fs::remove_dir_all::<&str>)?;
+    module.set_closure("mkdir", std::fs::create_dir::<&str>)?;
+    module.set_closure("mkdirs", std::fs::create_dir_all::<&str>)?;
+    module.set_closure("rmdir", std::fs::remove_dir::<&str>)?;
+    module.set_closure("rmdir_all", std::fs::remove_dir_all::<&str>)?;
 
     module.set(
         "attributes",
@@ -90,7 +90,7 @@ pub fn open(lua: &LuaState) -> LuaResult<LuaTable> {
         })?,
     )?;
 
-    module.register("touch", |file: &str, t: Option<f64>, a: Option<f64>| {
+    module.set_closure("touch", |file: &str, t: Option<f64>, a: Option<f64>| {
         let file = fs::File::open(file).lua_result()?;
         file.set_times(
             FileTimes::new()

@@ -25,7 +25,7 @@ impl UserData for Captures<'_> {
             }
             .map(|m| m.as_str())
         })?;
-        mt.register2("__call", |s, this: MaybePtrRef<Self>, arg: LuaValue| {
+        mt.add_method("__call", |s, this, arg: LuaValue| {
             match arg {
                 LuaValue::Integer(i) => this.get(i as _),
                 LuaValue::String(s) => this.name(s.to_str().unwrap_or_default()),
@@ -42,14 +42,14 @@ impl UserData for Captures<'_> {
 impl UserData for Match<'_> {
     fn getter(fields: UserdataRegistry<Self>) -> Result<()> {
         fields
-            .register("start", Self::start)?
-            .register("string", Self::as_str)?
-            .register("end_", Self::end)?;
+            .set_closure("start", Self::start)?
+            .set_closure("string", Self::as_str)?
+            .set_closure("end_", Self::end)?;
         Ok(())
     }
 
     fn methods(mt: UserdataRegistry<Self>) -> Result<()> {
-        mt.register("range", Self::range)?;
+        mt.set_closure("range", Self::range)?;
         Ok(())
     }
 }
@@ -58,16 +58,16 @@ impl UserData for Regex {
     const TYPE_NAME: &'static str = "Regex";
 
     fn methods(mt: UserdataRegistry<Self>) -> Result<()> {
-        mt.register("shortest_match", Regex::shortest_match)?;
+        mt.set_closure("shortest_match", Regex::shortest_match)?;
         // https://docs.rs/regex/latest/regex/struct.Regex.html#method.find
-        mt.register3("find", |s, this: &Self, text: &str, pos: Option<usize>| {
+        mt.add_method("find", |s, this, (text, pos): (&str, Option<usize>)| {
             pos.map(|p| this.find_at(text, p))
                 .unwrap_or_else(|| this.find(text))
                 .map(|res| s.new_userdata_with_values(res, [ArgRef(1), ArgRef(2)]))
                 .ok_or(())
         })?;
         // // https://docs.rs/regex/latest/regex/struct.Regex.html#method.find_iter
-        mt.register2("gmatch", |s, this: &Self, text: &str| unsafe {
+        mt.add_method("gmatch", |s, this, text: &str| unsafe {
             let iter = this.find_iter(text);
             s.new_iter(
                 iter.map(|m| (m.as_str(), m.start() + 1, m.end())),
@@ -75,37 +75,38 @@ impl UserData for Regex {
             )
         })?;
         // https://docs.rs/regex/latest/regex/struct.Regex.html#method.split
-        mt.register2("gsplit", |s, this: &Self, text: &str| unsafe {
+        mt.add_method("gsplit", |s, this, text: &str| unsafe {
             s.new_iter(this.split(text), [ArgRef(2)])
         })?;
-        mt.register2("split", |_, this: &Self, text: &str| {
-            IterVec(this.split(text))
+        mt.add_method("split", |s, this, text: &str| {
+            s.new_val(IterVec(this.split(text)))
         })?;
         // https://docs.rs/regex/latest/regex/struct.Regex.html#method.replace
-        mt.register3("replace", |_, this: &Self, text: &str, sub: LuaValue| {
-            Ok(match sub {
-                LuaValue::String(s) => {
-                    this.replace(text, s.to_str_lossy().unwrap_or_default().as_ref())
-                }
-                LuaValue::Function(f) => this.replace(text, |caps: &Captures| {
-                    f.pcall::<_, String>(MaybePtrRef(caps))
-                        .map_err(|err| {
-                            // TODO: log err
-                            std::eprintln!("{err:?}");
-                            err
-                        })
-                        .unwrap_or_default()
-                }),
-                _ => return Err("expect a string/function").convert_error(),
-            })
-        })?;
+        mt.add_method(
+            "replace",
+            |_, this: &Self, (text, sub): (&str, LuaValue)| {
+                Ok(match sub {
+                    LuaValue::String(s) => this.replace(text, s.to_string_lossy().as_ref()),
+                    LuaValue::Function(f) => this.replace(text, |caps: &Captures| {
+                        f.pcall::<_, String>(MaybePtrRef(caps))
+                            .map_err(|err| {
+                                // TODO: log err
+                                std::eprintln!("{err:?}");
+                                err
+                            })
+                            .unwrap_or_default()
+                    }),
+                    _ => return Err("expect a string/function").convert_error(),
+                })
+            },
+        )?;
         // https://docs.rs/regex/latest/regex/struct.Regex.html#method.captures
-        mt.register2("capture", |s, this: &Self, text: &str| {
+        mt.add_method("capture", |s, this, text: &str| {
             this.captures(text)
                 .map(|cap| s.new_userdata_with_values(cap, [ArgRef(1), ArgRef(2)]))
                 .ok_or(())
         })?;
-        mt.register2("match", |_, this: &Self, text: &str| {
+        mt.add_method("match", |_, this, text: &str| {
             MultiRet(
                 this.captures(text)
                     .map(|cap| {
@@ -122,7 +123,7 @@ impl UserData for Regex {
     }
 
     fn metatable(mt: UserdataRegistry<Self>) -> LuaResult<()> {
-        mt.register("new", Regex::new)?;
+        mt.set_closure("new", Regex::new)?;
         Ok(())
     }
 }

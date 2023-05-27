@@ -596,7 +596,8 @@ impl<'a, U: 'a + ?Sized, R: 'a, W> MethodRegistry<'a, &U, R, W> {
         R: Deref<Target = U>,
         &'a R: FromLua<'a>,
     {
-        self.0.raw_set(k, RustClosure(v, PhantomData))?;
+        self.0
+            .raw_set(k, self.state.bind_closure(|s| v.call_method(s), 0)?)?;
         Ok(self)
     }
 
@@ -609,7 +610,8 @@ impl<'a, U: 'a + ?Sized, R: 'a, W> MethodRegistry<'a, &U, R, W> {
         W: DerefMut<Target = U>,
         &'a W: FromLua<'a> + 'a,
     {
-        self.0.raw_set(k, RustClosure(v, PhantomData))?;
+        self.0
+            .raw_set(k, self.state.bind_closure(|s| v.call_method(s), 0)?)?;
         Ok(self)
     }
 }
@@ -635,17 +637,41 @@ impl<'a, U: 'a, R: 'a, W> MethodRegistry<'a, U, R, W> {
     }
 
     #[inline(always)]
+    pub fn add_field_set<M, A, RET>(&self, k: &str, field: M) -> Result<&Self>
+    where
+        A: FromLua<'a> + 'a,
+        RET: ToLuaMulti + 'a,
+        M: Fn(&'a State, W, A) -> RET,
+        W: DerefMut<Target = U> + FromLua<'a> + 'a,
+    {
+        self.0.raw_set(
+            k,
+            self.state.bind_closure(
+                |s| Result::Ok(field(s, W::check(s, 1)?, A::check(s, 2)?)),
+                0,
+            )?,
+        )?;
+        Ok(self)
+    }
+
+    #[inline(always)]
     pub fn add_method<M, ARGS, RET>(&self, k: &str, method: M) -> Result<&Self>
     where
         ARGS: FromLuaMulti<'a> + 'a,
         RET: ToLuaMulti + 'a,
-        M: Fn(&'a State, R, ARGS) -> RET,
+        M: Fn(&'a State, &U, ARGS) -> RET,
         R: Deref<Target = U> + FromLua<'a>,
     {
         self.0.raw_set(
             k,
             self.state.bind_closure(
-                |s| Result::Ok(method(s, R::check(s, 1)?, ARGS::from_lua(s, 2)?)),
+                |s| {
+                    Result::Ok(method(
+                        s,
+                        R::check(s, 1)?.deref(),
+                        ARGS::from_lua_multi(s, 2)?,
+                    ))
+                },
                 0,
             )?,
         )?;
@@ -667,7 +693,7 @@ impl<'a, U: 'a, R: 'a, W> MethodRegistry<'a, U, R, W> {
                     Result::Ok(method(
                         s,
                         W::check(s, 1)?.deref_mut(),
-                        ARGS::from_lua(s, 2)?,
+                        ARGS::from_lua_multi(s, 2)?,
                     ))
                 },
                 0,
@@ -683,7 +709,8 @@ impl<'a, U: 'a, R: 'a, W> MethodRegistry<'a, U, R, W> {
         V: LuaMethod<'a, (R, &'a U), ARGS, RET>,
         R: Deref<Target = U> + FromLua<'a>,
     {
-        self.0.raw_set(k, RustClosure(v, PhantomData))?;
+        self.0
+            .raw_set(k, self.state.bind_closure(|s| v.call_method(s), 0)?)?;
         Ok(self)
     }
 
@@ -694,7 +721,8 @@ impl<'a, U: 'a, R: 'a, W> MethodRegistry<'a, U, R, W> {
         V: LuaMethod<'a, (W, &'a mut U), ARGS, RET>,
         W: DerefMut<Target = U> + FromLua<'a> + 'a,
     {
-        self.0.raw_set(k, RustClosure(v, PhantomData))?;
+        self.0
+            .raw_set(k, self.state.bind_closure(|s| v.call_method(s), 0)?)?;
         Ok(self)
     }
 
