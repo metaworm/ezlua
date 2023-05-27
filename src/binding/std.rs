@@ -491,7 +491,7 @@ pub fn extend_string(s: &LuaState) -> Result<()> {
 }
 
 #[cfg(all(feature = "thread"))]
-mod thread {
+pub mod thread {
     use super::*;
 
     use core::cell::{Ref, RefCell, RefMut};

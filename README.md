@@ -52,6 +52,8 @@ fn main() -> LuaResult<()> {
     let result = add.pcall::<_, u32>((111, 222))?;
     assert_eq!(result, 333);
 
+    // ... for the following code
+
     Ok(())
 }
 ```
@@ -82,7 +84,7 @@ os.set_closure("getexe", std::env::current_exe)?;
 
 ### Bind your type
 
-Implement [`ToLua`] trait for your type, and then you can pass it to lua
+Implement `ToLua` trait for your type, and then you can pass it to lua
 
 ```rust
 #[derive(Debug, Default)]
@@ -103,8 +105,7 @@ impl ToLua for Config {
     }
 }
 
-lua.global()
-    .set_closure("default_config", Config::default)?;
+lua.global().set_closure("default_config", Config::default)?;
 ```
 
 ### Simply bindings via serde
@@ -130,11 +131,12 @@ impl ToLua for Config {
 }
 
 impl FromLua<'_> for Config {
-    fn from_lua(s: &State, val: ValRef) -> Option<Self> {
-        SerdeValue::<Self>::from_lua(val).map(|s| s.0)
+    fn from_lua(lua: &LuaState, val: ValRef) -> Option<Self> {
+        SerdeValue::<Self>::from_lua(lua, val).map(|s| s.0)
     }
 }
 
+lua.global().set("DEFAULT_CONFIG", SerdeValue(Config::default()))?;
 lua.global()
     .set_closure("set_config", |config: Config| {
         // ... set your config
@@ -143,8 +145,141 @@ lua.global()
 
 ### Bind custom object (userdata)
 
+ezlua's userdata binding mechanism is powerful, the following code comes from [std bindings](https://github.com/metaworm/ezlua/tree/master/src/binding/std.rs)
+
+```rust
+use std::{fs::Metadata, path::*};
+
+impl UserData for Metadata {
+    fn getter(fields: UserdataRegistry<Self>) -> Result<()> {
+        fields.set_closure("size", Self::len)?;
+        fields.set_closure("modified", Self::modified)?;
+        fields.set_closure("created", Self::created)?;
+        fields.set_closure("accessed", Self::accessed)?;
+        fields.set_closure("readonly", |this: &Self| this.permissions().readonly())?;
+
+        Ok(())
+    }
+
+    fn methods(mt: UserdataRegistry<Self>) -> Result<()> {
+        mt.set_closure("len", Self::len)?;
+        mt.set_closure("is_dir", Self::is_dir)?;
+        mt.set_closure("is_file", Self::is_file)?;
+        mt.set_closure("is_symlink", Self::is_symlink)?;
+
+        Ok(())
+    }
+}
+```
+
+Types impls the `UserData` trait, ezlua also impls `ToLua` for itself, and impls `FromLua` for its reference
+```rust
+lua.global().set("path_metadata", Path::metadata)?;
+```
+
+Defaultly, types binded as userdata is immutable, if you need mutable reference, you can specific a `UserData::Trans` type, and there is a builtin impl that is `RefCell`, so the mutable binding impls looks like this
+```rust
+use core::cell::RefCell;
+use std::process::{Child, Command, ExitStatus, Stdio};
+
+impl UserData for Child {
+    type Trans = RefCell<Self>;
+
+    fn getter(fields: UserdataRegistry<Self>) -> LuaResult<()> {
+        fields.add("id", Self::id)?;
+
+        Ok(())
+    }
+
+    fn methods(mt: UserdataRegistry<Self>) -> Result<()> {
+        mt.add_mut("kill", Self::kill)?;
+        mt.add_mut("wait", Self::wait)?;
+
+        mt.add_mut("try_wait", |this: &mut Self| {
+            this.try_wait().ok().flatten().ok_or(())
+        })?;
+    }
+}
+```
+
 ### Register your own module
+
+To register a lua module, you can provide a rust function return a lua table via `LuaState::register_module` method
+```rust
+lua.register_module("json", ezlua::binding::json::open, false)?;
+lua.register_module("path", |lua| {
+    let t = lua.new_table()?;
+
+    t.set_closure("dirname", Path::parent)?;
+    t.set_closure("exists", Path::exists)?;
+    t.set_closure("abspath", std::fs::canonicalize::<&str>)?;
+    t.set_closure("isabs", Path::is_absolute)?;
+    t.set_closure("isdir", Path::is_dir)?;
+    t.set_closure("isfile", Path::is_file)?;
+    t.set_closure("issymlink", Path::is_symlink)?;
+
+    return Ok(t);
+}, false)?;
+```
+
+And then use them in lua
+```lua
+local json = require 'json'
+local path = require 'path'
+
+local dir = path.abspath('.')
+assert(json.load(json.dump(dir)) == dir)
+```
 
 ### Multiple thread usage
 
-## Internal
+To use multiple thread feature in lua, you need to specify the `thread` feature in Cargo.toml, and patch the lua-src crate with [ezlua's custom](https://github.com/metaworm/lua-src-rs)
+```toml
+[dependencies]
+ezlua = { version = '0.2', features = ['thread'] }
+
+[patch.crates-io]
+lua-src = { git = "https://github.com/metaworm/lua-src-rs" }
+```
+
+And then, register the thread module for lua
+```rust
+lua.register_module("thread", ezlua::binding::std::thread::init, true)?;
+```
+
+And then, use it in lua
+```lua
+local thread = require 'thread'
+local threads = {}
+local tt = { n = 0 }
+local count = 64
+for i = 1, count do
+    threads[i] = thread.spawn(function()
+        tt.n = tt.n + 1
+        -- print(tt.n)
+    end)
+end
+
+for i, t in ipairs(threads) do
+    t:join()
+    print('#' .. i .. ' finished')
+end
+assert(tt.n == count)
+```
+
+In addition, you can also start a new thread with the same lua VM
+```rust
+let co = Coroutine::empty(&lua);
+std::thread::spawn(move || {
+    let print = co.global().get("print")?;
+    print.pcall_void("running lua in another thread")?;
+
+    LuaResult::Ok(())
+})
+.join()
+.unwrap();
+```
+
+## Internal design
+
+TODO
