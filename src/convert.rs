@@ -5,7 +5,7 @@ use crate::{
     ffi::{self, *},
     luaapi::*,
     marker::{IterMap, IterVec, Pushed, Strict},
-    state::{StackGuard, State},
+    state::State,
     userdata::{UserData, UserDataTrans},
     value::*,
 };
@@ -660,69 +660,6 @@ impl State {
     #[inline(always)]
     pub(crate) fn push_multi<'a, T: ToLuaMulti>(&'a self, t: T) -> Result<usize> {
         t.push_multi(self)
-    }
-
-    #[inline(always)]
-    pub(crate) fn raise_with<T, F: FnOnce(&State) -> Result<T>>(self, fun: F) -> T {
-        match fun(&self) {
-            Ok(result) => result,
-            Err(err) => unsafe {
-                self.raise_error(err);
-            },
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) unsafe fn return_result<T: ToLuaMulti>(self, t: T) -> usize {
-        match t.push_multi(&self) {
-            Ok(result) => result,
-            Err(err) => unsafe { self.raise_error(err) },
-        }
-    }
-
-    // tracebacked pcall
-    #[inline(always)]
-    pub(crate) fn pcall_trace<'a, T: ToLuaMulti, R: FromLuaMulti<'a>>(
-        &'a self,
-        ifunc: Index,
-        args: T,
-    ) -> Result<R> {
-        let guard = self.stack_guard();
-
-        self.check_stack(args.value_count().unwrap_or(10) as i32 + 2)?;
-        self.push_fn(Some(Self::traceback_c));
-        self.push_value(ifunc);
-        self.statuscode_to_error(unsafe {
-            lua_pcall(self.state, self.push_multi(args)? as _, -1, guard.top() + 1)
-        })?;
-
-        let result_base = guard.top() + 2;
-        self.to_multi_balance(guard, result_base)
-    }
-
-    #[inline(always)]
-    pub(crate) fn to_multi_balance<'a, R: FromLuaMulti<'a>>(
-        &'a self,
-        guard: StackGuard<'a>,
-        result_base: i32,
-    ) -> Result<R> {
-        let top = self.get_top();
-        let res = R::from_lua_multi(self, result_base);
-        self.check_multi_balance(guard, top);
-        res
-    }
-
-    fn check_multi_balance<'a>(&'a self, guard: StackGuard<'a>, top: i32) {
-        if self.get_top() > top {
-            // reuse slots between old_top and top
-            for i in guard.top() + 1..=top {
-                self.give_back_slot(i);
-            }
-            core::mem::forget(guard);
-        } else {
-            // there are no new valref
-            drop(guard);
-        }
     }
 
     /// Create an iterator with non-static reference, you should ensure that these references

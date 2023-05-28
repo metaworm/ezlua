@@ -6,7 +6,7 @@ use core::ffi::c_void;
 use crate::{
     convert::*,
     error::*,
-    ffi::{lua_Integer, lua_Number},
+    ffi::{self, lua_Integer, lua_Number},
     luaapi::{Reference, Type, UnsafeLuaApi},
     marker::RegVal,
     prelude::ArgRef,
@@ -149,53 +149,97 @@ impl<'a> ValRef<'a> {
         FromLua::check(self.state, self.index)
     }
 
-    #[inline]
-    pub fn geti(&self, i: impl Into<lua_Integer>) -> ValRef<'a> {
-        self.state.geti(self.index, i.into());
-        self.state.top_val()
-    }
-
-    #[inline]
-    pub fn seti<V: ToLua>(&self, i: impl Into<lua_Integer>, v: V) -> Result<()> {
-        self.state.push(v)?;
-        self.state.seti(self.index, i.into());
-        Ok(())
-    }
-
-    pub fn getf(&self, k: &CStr) -> ValRef {
+    pub(crate) fn getf(&self, k: &CStr) -> ValRef {
         self.state.get_field(self.index, k);
         self.state.top_val()
     }
 
-    /// Get length of the value, like `return #self` in lua
     #[inline]
-    pub fn len(&self) -> ValRef<'a> {
-        self.state.len(self.index);
-        self.state.top_val()
-    }
-
-    #[inline]
-    pub fn setf<V: ToLua>(&self, k: &CStr, v: V) -> Result<()> {
+    pub(crate) fn setf<V: ToLua>(&self, k: &CStr, v: V) -> Result<()> {
         self.state.push(v)?;
         self.state.set_field(self.index, k);
         Ok(())
     }
 
+    #[inline]
+    pub fn geti(&self, i: impl Into<lua_Integer>) -> Result<ValRef<'a>> {
+        if self.has_metatable() {
+            unsafe extern "C" fn protect_get(l: *mut ffi::lua_State) -> i32 {
+                ffi::lua_geti(l, 1, ffi::lua_tointeger(l, 2));
+                1
+            }
+            self.state
+                .protect_call((ArgRef(self.index), i.into()), protect_get)
+        } else {
+            self.state.geti(self.index, i.into());
+            Ok(self.state.top_val())
+        }
+    }
+
+    #[inline]
+    pub fn seti<V: ToLua>(&self, i: impl Into<lua_Integer>, v: V) -> Result<()> {
+        if self.has_metatable() {
+            unsafe extern "C" fn protect_set(l: *mut ffi::lua_State) -> i32 {
+                ffi::lua_seti(l, 1, ffi::lua_tointeger(l, 2));
+                0
+            }
+            self.state
+                .protect_call((ArgRef(self.index), i.into(), v), protect_set)
+        } else {
+            self.state.push(v)?;
+            self.state.seti(self.index, i.into());
+            Ok(())
+        }
+    }
+
+    /// Get length of the value, like `return #self` in lua
+    #[inline]
+    pub fn len(&self) -> Result<ValRef<'a>> {
+        if self.has_metatable() {
+            unsafe extern "C" fn protect(l: *mut ffi::lua_State) -> i32 {
+                ffi::lua_len(l, 1);
+                0
+            }
+            self.state.protect_call(ArgRef(self.index), protect)
+        } else {
+            self.state.len(self.index);
+            Ok(self.state.top_val())
+        }
+    }
+
     /// Set value, equivalent to `self[k] = v` in lua
     #[inline]
     pub fn set<K: ToLua, V: ToLua>(&self, k: K, v: V) -> Result<()> {
-        self.state.push(k)?;
-        self.state.push(v)?;
-        self.state.set_table(self.index);
-        Ok(())
+        if self.has_metatable() {
+            unsafe extern "C" fn protect_set(l: *mut ffi::lua_State) -> i32 {
+                ffi::lua_settable(l, 1);
+                0
+            }
+            self.state
+                .protect_call((ArgRef(self.index), k, v), protect_set)
+        } else {
+            self.state.push(k)?;
+            self.state.push(v)?;
+            self.state.set_table(self.index);
+            Ok(())
+        }
     }
 
-    /// Get value in this value, equivalent to  `return self[k]` in lua
+    /// Get value associated, equivalent to  `return self[k]` in lua
     #[inline]
     pub fn get<K: ToLua>(&self, k: K) -> Result<ValRef<'a>> {
-        self.state.push(k)?;
-        self.state.get_table(self.index);
-        Ok(self.state.top_val())
+        if self.has_metatable() {
+            unsafe extern "C" fn protect_get(l: *mut ffi::lua_State) -> i32 {
+                ffi::lua_gettable(l, 1);
+                1
+            }
+            self.state
+                .protect_call((ArgRef(self.index), k), protect_get)
+        } else {
+            self.state.push(k)?;
+            self.state.get_table(self.index);
+            Ok(self.state.top_val())
+        }
     }
 
     #[inline]
@@ -206,7 +250,7 @@ impl<'a> ValRef<'a> {
     /// Call this value as a function
     #[inline(always)]
     pub fn pcall<T: ToLuaMulti, R: FromLuaMulti<'a>>(&self, args: T) -> Result<R> {
-        self.state.pcall_trace(self.index, args)
+        self.state.pcall_trace(ArgRef(self.index), args)
     }
 
     /// Invoke `pcall()` without return value
@@ -215,10 +259,18 @@ impl<'a> ValRef<'a> {
         self.pcall(args)
     }
 
+    pub fn has_metatable(&self) -> bool {
+        let result = self.state.get_metatable(self.index);
+        if result {
+            self.state.pop(1);
+        }
+        result
+    }
+
     /// Get metatable of lua table or userdata
     pub fn metatable(&self) -> Result<Option<Table<'a>>> {
         Ok(if self.state.get_metatable(self.index) {
-            Some(self.state.top_val().try_into().unwrap())
+            Some(self.state.top_val().try_into()?)
         } else {
             None
         })
@@ -528,10 +580,11 @@ impl<'l> Table<'l> {
         Ok(())
     }
 
-    /// Get value by any key without metamethod triggers
+    /// Get the value associated to `key` without metamethod triggers
     #[inline]
-    pub fn raw_get<K: ToLua>(&self, k: K) -> Result<ValRef<'l>> {
-        self.state.push(k)?;
+    pub fn raw_get<K: ToLua>(&self, key: K) -> Result<ValRef<'l>> {
+        self.state.check_stack(3)?;
+        self.state.push(key)?;
         self.state.raw_get(self.index);
         Ok(self.state.top_val())
     }
@@ -539,6 +592,8 @@ impl<'l> Table<'l> {
     /// Set value by any key without metamethod triggers
     #[inline]
     pub fn raw_set<K: ToLua, V: ToLua>(&self, k: K, v: V) -> Result<()> {
+        // TODO: protect call?
+        self.state.check_stack(3)?;
         self.state.push(k)?;
         self.state.push(v)?;
         self.state.raw_set(self.index);

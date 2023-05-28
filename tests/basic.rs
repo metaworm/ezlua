@@ -180,7 +180,7 @@ fn call_lua() {
 
     println!("top: {}", s.stack_top());
     for i in 1..10 {
-        let t = g.geti(i);
+        let t = g.geti(i).unwrap();
         assert_eq!(t.get("key").unwrap().cast::<i32>(), Some(i));
     }
     println!("top: {}", s.stack_top());
@@ -308,6 +308,30 @@ fn table_iter() {
         }
         std::println!("[top] {}", s.stack_top());
     }
+}
+
+#[test]
+fn table_get() {
+    let lua = Lua::with_open_libs();
+    lua.do_string("t = {}", None).unwrap();
+    let t = lua.global().get("t").unwrap();
+    t.set("key", "value").unwrap();
+    assert_eq!(t.get("key").unwrap().cast::<String>().unwrap(), "value");
+
+    t.seti(1, 1).unwrap();
+    t.seti(2, 2).unwrap();
+    t.seti(3, 3).unwrap();
+    assert_eq!(t.len().unwrap().cast::<usize>().unwrap(), 3);
+
+    lua.do_string(
+        "t = setmetatable({}, {__index = function() error() end, __newindex = function() error() end, __len = function() error() end})",
+        None,
+    )
+    .unwrap();
+    let t = lua.global().get("t").unwrap();
+    t.get("key").unwrap_err();
+    t.geti(1).unwrap_err();
+    t.len().unwrap_err();
 }
 
 #[ignore]
