@@ -624,13 +624,18 @@ impl<'a, U: 'a, R: 'a, W> MethodRegistry<'a, U, R, W> {
     pub fn add_field_get<M, RET>(&self, k: &str, field: M) -> Result<&Self>
     where
         RET: ToLuaMulti + 'a,
-        M: Fn(&'a State, R) -> RET,
-        R: Deref<Target = U> + FromLua<'a>,
+        M: Fn(&'a State, &'a U) -> RET,
+        R: Deref<Target = U> + FromLua<'a> + 'a,
     {
         self.0.raw_set(
             k,
-            self.state
-                .bind_closure(|s| Result::Ok(field(s, R::check(s, 1)?)), 0)?,
+            self.state.bind_closure(
+                |lua| unsafe {
+                    let this = R::check(lua, 1)?;
+                    lua.pushed(field(lua, core::mem::transmute(this.deref())))
+                },
+                0,
+            )?,
         )?;
         Ok(self)
     }
@@ -640,13 +645,20 @@ impl<'a, U: 'a, R: 'a, W> MethodRegistry<'a, U, R, W> {
     where
         A: FromLua<'a> + 'a,
         RET: ToLuaMulti + 'a,
-        M: Fn(&'a State, W, A) -> RET,
+        M: Fn(&'a State, &'a mut U, A) -> RET,
         W: DerefMut<Target = U> + FromLua<'a> + 'a,
     {
         self.0.raw_set(
             k,
             self.state.bind_closure(
-                |s| Result::Ok(field(s, W::check(s, 1)?, A::check(s, 2)?)),
+                |lua| unsafe {
+                    let mut this = W::check(lua, 1)?;
+                    lua.pushed(field(
+                        lua,
+                        core::mem::transmute(this.deref_mut()),
+                        A::check(lua, 2)?,
+                    ))
+                },
                 0,
             )?,
         )?;
@@ -658,17 +670,18 @@ impl<'a, U: 'a, R: 'a, W> MethodRegistry<'a, U, R, W> {
     where
         ARGS: FromLuaMulti<'a> + 'a,
         RET: ToLuaMulti + 'a,
-        M: Fn(&'a State, &U, ARGS) -> RET,
-        R: Deref<Target = U> + FromLua<'a>,
+        M: Fn(&'a State, &'a U, ARGS) -> RET,
+        R: Deref<Target = U> + FromLua<'a> + 'a,
     {
         self.0.raw_set(
             k,
             self.state.bind_closure(
-                |s| {
-                    Result::Ok(method(
-                        s,
-                        R::check(s, 1)?.deref(),
-                        ARGS::from_lua_multi(s, 2)?,
+                |lua| unsafe {
+                    let this = R::check(lua, 1)?;
+                    lua.pushed(method(
+                        lua,
+                        core::mem::transmute(this.deref()),
+                        ARGS::from_lua_multi(lua, 2)?,
                     ))
                 },
                 0,
@@ -682,17 +695,18 @@ impl<'a, U: 'a, R: 'a, W> MethodRegistry<'a, U, R, W> {
     where
         ARGS: FromLuaMulti<'a> + 'a,
         RET: ToLuaMulti + 'a,
-        M: Fn(&'a State, &mut U, ARGS) -> RET,
+        M: Fn(&'a State, &'a mut U, ARGS) -> RET,
         W: DerefMut<Target = U> + FromLua<'a> + 'a,
     {
         self.0.raw_set(
             k,
             self.state.bind_closure(
-                |s| {
-                    Result::Ok(method(
-                        s,
-                        W::check(s, 1)?.deref_mut(),
-                        ARGS::from_lua_multi(s, 2)?,
+                |lua| unsafe {
+                    let mut this = W::check(lua, 1)?;
+                    lua.pushed(method(
+                        lua,
+                        core::mem::transmute(this.deref_mut()),
+                        ARGS::from_lua_multi(lua, 2)?,
                     ))
                 },
                 0,
