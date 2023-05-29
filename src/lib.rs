@@ -55,6 +55,7 @@ pub mod ffi;
 pub mod lua;
 #[doc(hidden)]
 pub mod luaapi;
+pub mod macros;
 pub mod marker;
 pub mod prelude;
 #[cfg(feature = "std")]

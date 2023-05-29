@@ -8,14 +8,8 @@ use crate::{
     value::{ValRef, Value},
 };
 
-use alloc::borrow::Cow;
-use alloc::collections::BinaryHeap as Slots;
-use alloc::format;
-use core::{
-    cell::{Cell, RefCell},
-    ffi::{c_char, c_int},
-    str,
-};
+use alloc::{borrow::Cow, collections::BinaryHeap as Slots, format};
+use core::{cell::RefCell, ffi::c_char, ffi::c_int, str};
 
 /// Safe wrapper for operation to lua_State
 #[derive(Debug)]
