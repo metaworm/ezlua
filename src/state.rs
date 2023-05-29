@@ -264,7 +264,7 @@ pub mod unsafe_impl {
         pub fn new_table_with_size(&self, narr: c_int, nrec: c_int) -> Result<Table> {
             self.check_stack(1)?;
             self.create_table(narr, nrec);
-            Ok(self.top_val().try_into().unwrap())
+            Ok(self.top_val().try_into().expect("table"))
         }
 
         /// Create a lua table
@@ -278,7 +278,7 @@ pub mod unsafe_impl {
         pub fn new_string<S: AsRef<[u8]>>(&self, s: S) -> Result<LuaString> {
             self.check_stack(1)?;
             self.push_bytes(s.as_ref());
-            Ok(self.top_val().try_into().unwrap())
+            Ok(self.top_val().try_into().expect("string"))
         }
 
         /// Load script string or bytecode
@@ -287,7 +287,7 @@ pub mod unsafe_impl {
             let guard = self.stack_guard();
             self.statuscode_to_error(self.load_buffer(s, name))?;
             core::mem::forget(guard);
-            Ok(self.top_val().try_into().unwrap())
+            Ok(self.top_val().try_into().expect("function"))
         }
 
         /// Create function from script file
@@ -322,7 +322,7 @@ pub mod unsafe_impl {
         #[inline(always)]
         pub fn global(&self) -> Table {
             self.raw_geti(LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
-            self.top_val().try_into().unwrap()
+            self.top_val().try_into().expect("table")
         }
 
         /// Do a full GC for lua

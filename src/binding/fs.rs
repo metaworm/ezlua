@@ -169,6 +169,7 @@ fn lua_attribute<'a>(
     let mode;
     #[cfg(windows)]
     unsafe {
+        use alloc::vec::Vec;
         use std::os::windows::ffi::OsStrExt;
 
         let mut path = path.as_os_str().encode_wide().collect::<Vec<_>>();

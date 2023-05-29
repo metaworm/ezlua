@@ -254,6 +254,14 @@ fn stack_balance() {
 }
 
 #[test]
+fn table() {
+    let lua = Lua::with_open_libs();
+    for _ in 0..100 {
+        lua.new_table().unwrap();
+    }
+}
+
+#[test]
 fn table_iter() {
     let s = Lua::with_open_libs();
     let g = s.global();

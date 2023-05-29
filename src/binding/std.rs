@@ -550,7 +550,7 @@ pub mod thread {
     }
 
     #[cfg(target_os = "windows")]
-    const RAW_NULL: RawHandle = pstd::ptr::null_mut();
+    const RAW_NULL: RawHandle = std::ptr::null_mut();
     #[cfg(not(target_os = "windows"))]
     const RAW_NULL: RawHandle = 0;
 
