@@ -12,15 +12,17 @@ use crate::{
 
 use alloc::{
     borrow::{Cow, ToOwned},
+    boxed::Box,
     ffi::CString,
     string::String,
     sync::Arc,
     vec::Vec,
 };
-use alloc::{boxed::Box, vec};
-use core::cell::RefCell;
-use core::ops::{Deref, DerefMut};
-use core::{fmt::Debug, marker::Tuple};
+use core::{
+    cell::RefCell,
+    fmt::Debug,
+    ops::{Deref, DerefMut},
+};
 
 #[cfg(feature = "std")]
 use std::{collections::HashMap, hash::Hash};
@@ -361,7 +363,7 @@ pub struct MultiRet<T>(pub Vec<T>);
 
 impl<T> Default for MultiRet<T> {
     fn default() -> Self {
-        Self(vec![])
+        Self(Vec::new())
     }
 }
 
@@ -386,7 +388,7 @@ impl<'a, T: FromLua<'a> + 'a> FromLua<'a> for MultiRet<T> {
     const TYPE_NAME: &'static str = core::any::type_name::<Self>();
 
     fn from_index(s: &'a State, i: Index) -> Option<Self> {
-        let mut result = vec![];
+        let mut result = Vec::new();
         for i in i..=s.get_top() {
             result.push(T::from_index(s, i)?);
         }
@@ -431,23 +433,43 @@ impl<'a, T: FromLua<'a>> FromLuaMulti<'a> for T {
 
 impl<T: ToLuaMulti, E: Debug + Send + Sync + 'static> ToLuaMulti for core::result::Result<T, E> {
     #[inline(always)]
-    default fn push_multi(self, s: &State) -> Result<usize> {
-        self.map_err(Error::runtime_debug)?.push_multi(s)
-    }
-}
-
-impl<T: ToLuaMulti> ToLuaMulti for core::result::Result<T, ()> {
-    #[inline(always)]
-    default fn push_multi(self, s: &State) -> Result<usize> {
+    fn push_multi(self, s: &State) -> Result<usize> {
         match self {
             Ok(result) => result.push_multi(s),
-            Err(_) => Ok(0),
+            Err(_) if core::any::TypeId::of::<()>() == core::any::TypeId::of::<E>() => Ok(0),
+            Err(err) => Err(Error::runtime_debug(err)),
         }
     }
 }
 
 macro_rules! impl_method {
     ($(($x:ident, $i:tt)) *) => (
+        // For normal function
+        #[allow(unused_parens)]
+        impl<'a,
+            FN: Fn($($x),*) -> RET,
+            RET: ToLuaMulti + 'a,
+            $($x: FromLua<'a> + 'a,)*
+        > LuaMethod<'a, (), ($($x,)*), RET> for FN {
+            #[inline(always)]
+            fn call_method(&self, s: &'a State) -> Result<Pushed> {
+                s.pushed(self($($x::check(s, 1 + $i)?,)*))
+            }
+        }
+
+        // For normal function with &LuaState
+        #[allow(unused_parens)]
+        impl<'a,
+            FN: Fn(&'a State, $($x),*) -> RET,
+            RET: ToLuaMulti + 'a,
+            $($x: FromLua<'a> + 'a,)*
+        > LuaMethod<'a, (), (&'a State, $($x,)*), RET> for FN {
+            #[inline(always)]
+            fn call_method(&self, s: &'a State) -> Result<Pushed> {
+                s.pushed(self(s, $($x::check(s, 1 + $i)?,)*))
+            }
+        }
+
         // For Deref
         #[allow(unused_parens)]
         impl<'a,
@@ -736,19 +758,11 @@ impl State {
 
     /// Bind a rust function(closure) with flexible argument types
     #[inline(always)]
-    pub fn new_closure<
-        'l,
-        A: FromLuaMulti<'l> + Tuple,
-        R: ToLuaMulti + 'l,
-        F: Fn<A, Output = R> + 'static,
-    >(
+    pub fn new_closure<'l, A: 'l, R: 'l, F: LuaMethod<'l, (), A, R> + 'static>(
         &self,
         fun: F,
     ) -> Result<Function<'_>> {
-        self.bind_closure(
-            move |s: &'l State| Result::Ok(fun.call(A::from_lua_multi(s, 1)?)),
-            0,
-        )
+        self.bind_closure(move |s: &'l State| fun.call_method(s), 0)
     }
 
     impl_closure!(new_closure0());
@@ -794,12 +808,7 @@ pub fn module_function_wrapper<'l, F: Fn(&'l State) -> Result<Table<'l>>>(fun: F
 
 /// Converts a rust closure to lua C function
 #[inline(always)]
-pub fn function_wrapper<
-    'l,
-    A: FromLuaMulti<'l> + Tuple,
-    R: ToLuaMulti + 'l,
-    F: Fn<A, Output = R>,
->(
+pub fn function_wrapper<'l, A: 'l, R: ToLuaMulti + 'l, F: LuaMethod<'l, (), A, R>>(
     fun: F,
 ) -> CFunction {
     #[inline(always)]
@@ -807,7 +816,7 @@ pub fn function_wrapper<
         closure_wrapper::<'l, R, F>
     }
 
-    to_wrapper(move |s: &'l State| Result::Ok(fun.call(A::from_lua_multi(s, 1)?)))
+    to_wrapper(move |lua: &'l State| fun.call_method(lua))
 }
 
 pub unsafe extern "C" fn closure_wrapper<'l, R: ToLuaMulti + 'l, F: Fn(&'l State) -> R>(

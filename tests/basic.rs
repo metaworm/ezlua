@@ -156,8 +156,11 @@ fn arguments() -> LuaResult<()> {
 
     println!("top4 {}", s.stack_top());
     s.load("assert(type(...) == 'userdata')", None)?
-        .pcall_void(Ok(Test))
+        .pcall_void(Ok::<_, ()>(Test))
         .expect("Ok(userdata)");
+    s.load("assert(select('#', ...) == 0)", None)?
+        .pcall_void(Err::<Test, ()>(()))
+        .expect("Err(())");
 
     assert_eq!(top, s.stack_top());
 

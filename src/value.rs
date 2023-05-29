@@ -630,13 +630,7 @@ impl<'l> Table<'l> {
     }
 
     #[inline(always)]
-    pub fn set_closure<
-        'a,
-        K: ToLua,
-        A: FromLuaMulti<'a> + core::marker::Tuple,
-        R: ToLuaMulti + 'a,
-        F: Fn<A, Output = R> + 'static,
-    >(
+    pub fn set_closure<'a, K: ToLua, A: 'a, R: 'a, F: LuaMethod<'a, (), A, R> + 'static>(
         &self,
         k: K,
         v: F,

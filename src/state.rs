@@ -438,7 +438,7 @@ pub mod unsafe_impl {
         pub(crate) unsafe fn return_result<T: ToLuaMulti>(self, t: T) -> usize {
             match t.push_multi(&self) {
                 Ok(result) => result,
-                Err(err) => unsafe { self.raise_error(err) },
+                Err(err) => self.raise_error(err),
             }
         }
 

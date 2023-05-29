@@ -1,7 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![no_std]
 #![feature(
-    min_specialization,
     thread_id_value,
     macro_metavar_expr,
     const_type_name,
