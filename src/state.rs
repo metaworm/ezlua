@@ -9,9 +9,6 @@ use crate::{
 };
 
 use alloc::borrow::Cow;
-#[cfg(feature = "use_bset")]
-use alloc::collections::BTreeSet as Slots;
-#[cfg(not(feature = "use_bset"))]
 use alloc::collections::BinaryHeap as Slots;
 use alloc::format;
 use core::{
@@ -24,8 +21,6 @@ use core::{
 #[derive(Debug)]
 pub struct State {
     pub base: Index,
-    /// maximum index of valref which in use
-    pub(crate) max_vi: Cell<i32>,
     pub(crate) state: *mut lua_State,
     pub(crate) free: RefCell<Slots<i32>>,
 }
@@ -76,8 +71,9 @@ impl State {
     #[inline(always)]
     #[track_caller]
     pub(crate) fn give_back_slot(&self, i: Index) {
+        #[cfg(feature = "std")]
         if debug_ezlua() {
-            let loc = std::panic::Location::caller();
+            let loc = core::panic::Location::caller();
             assert!(
                 !self.slot_exists(i),
                 "[give back]: {i} from: {}:{}",
@@ -143,7 +139,6 @@ pub mod unsafe_impl {
                 base,
                 state,
                 free: Default::default(),
-                max_vi: Default::default(),
             }
         }
 
@@ -186,7 +181,6 @@ pub mod unsafe_impl {
         pub(crate) fn top_val(&self) -> ValRef {
             self.try_replace_top().unwrap_or_else(|| {
                 let top = self.get_top();
-                self.set_max_valref_index(top);
                 ValRef {
                     state: self,
                     index: top,
@@ -198,6 +192,7 @@ pub mod unsafe_impl {
             let top = self.get_top();
             while let Some(slot) = self.free.borrow_mut().pop() {
                 if slot < top {
+                    #[cfg(feature = "std")]
                     if debug_ezlua() {
                         std::println!("[borrow slot] {slot} top: {top}");
                     }
@@ -206,8 +201,11 @@ pub mod unsafe_impl {
                         state: self,
                         index: slot,
                     });
-                } else if debug_ezlua() {
-                    std::println!("[drop slot] {slot}");
+                } else {
+                    #[cfg(feature = "std")]
+                    if debug_ezlua() {
+                        std::println!("[drop slot] {slot}");
+                    }
                 }
             }
             None
@@ -320,7 +318,7 @@ pub mod unsafe_impl {
             assert!(core::mem::size_of::<F>() == 0);
             self.requiref(
                 &CString::new(name).map_err(Error::runtime_debug)?,
-                crate::convert::closure_wrapper::<_, F>,
+                crate::convert::function_wrapper(init),
                 global,
             );
             Ok(())
@@ -613,7 +611,7 @@ pub mod unsafe_impl {
 
         #[track_caller]
         pub(crate) fn dump_stack(&self) -> String {
-            let loc = std::panic::Location::caller();
+            let loc = core::panic::Location::caller();
             let mut info = format!("dump_stack from {}:{}\n", loc.file(), loc.line());
             for i in (1..=self.get_top()).rev().take(6) {
                 let val = self.val_without_push(i);
@@ -623,24 +621,11 @@ pub mod unsafe_impl {
             info
         }
 
-        pub(crate) fn reset_max_valref_index(&self) {
-            self.max_vi.set(0);
-        }
-
-        pub(crate) fn set_max_valref_index(&self, i: Index) {
-            self.max_vi.set(self.max_vi.get().max(i));
-        }
-
         /// drop the slot > i
         pub(crate) fn drop_slots_greater(&self, i: Index) {
-            #[cfg(feature = "use_bset")]
-            self.free.borrow_mut().split_off(&(i + 1));
-            #[cfg(not(feature = "use_bset"))]
-            {
-                let mut free = self.free.borrow_mut();
-                while free.peek().filter(|&&s| s > i).is_some() {
-                    free.pop();
-                }
+            let mut free = self.free.borrow_mut();
+            while free.peek().filter(|&&s| s > i).is_some() {
+                free.pop();
             }
         }
     }

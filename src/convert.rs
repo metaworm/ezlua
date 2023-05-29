@@ -717,29 +717,6 @@ impl State {
         Ok(val)
     }
 
-    /// Converts a rust closure to lua function without any captured variableds
-    #[inline(always)]
-    pub fn function_wrapper<
-        'l,
-        A: FromLuaMulti<'l> + Tuple,
-        R: ToLuaMulti + 'l,
-        F: Fn<A, Output = R>,
-    >(
-        fun: F,
-    ) -> lua_CFunction {
-        Self::to_function_wrapper(move |s: &'l State| {
-            Result::Ok(fun.call(A::from_lua_multi(s, 1)?))
-        })
-    }
-
-    #[inline(always)]
-    pub fn to_function_wrapper<'l, R: ToLuaMulti + 'l, F: Fn(&'l State) -> R>(
-        _f: F,
-    ) -> lua_CFunction {
-        assert!(core::mem::size_of::<F>() == 0);
-        Some(closure_wrapper::<'l, R, F>)
-    }
-
     /// Bind a rust function(closure) with uniform argument types
     #[inline(always)]
     pub fn new_function<
@@ -806,6 +783,31 @@ impl State {
         }
         self.top_val().try_into()
     }
+}
+
+/// Converts a rust closure to lua C function, for module creation purpose
+#[inline(always)]
+pub fn module_function_wrapper<'l, F: Fn(&'l State) -> Result<Table<'l>>>(fun: F) -> CFunction {
+    assert!(core::mem::size_of::<F>() == 0);
+    function_wrapper(fun)
+}
+
+/// Converts a rust closure to lua C function
+#[inline(always)]
+pub fn function_wrapper<
+    'l,
+    A: FromLuaMulti<'l> + Tuple,
+    R: ToLuaMulti + 'l,
+    F: Fn<A, Output = R>,
+>(
+    fun: F,
+) -> CFunction {
+    #[inline(always)]
+    fn to_wrapper<'l, R: ToLuaMulti + 'l, F: Fn(&'l State) -> R>(_f: F) -> CFunction {
+        closure_wrapper::<'l, R, F>
+    }
+
+    to_wrapper(move |s: &'l State| Result::Ok(fun.call(A::from_lua_multi(s, 1)?)))
 }
 
 pub unsafe extern "C" fn closure_wrapper<'l, R: ToLuaMulti + 'l, F: Fn(&'l State) -> R>(

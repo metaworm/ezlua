@@ -3,14 +3,11 @@
 #![feature(
     min_specialization,
     thread_id_value,
-    associated_const_equality,
     macro_metavar_expr,
     const_type_name,
     unboxed_closures,
     fn_traits,
     tuple_trait,
-    auto_traits,
-    negative_impls,
     file_set_times,
     associated_type_defaults
 )]
@@ -60,6 +57,7 @@ pub mod lua;
 pub mod luaapi;
 pub mod marker;
 pub mod prelude;
+#[cfg(feature = "std")]
 pub mod serde;
 pub mod userdata;
 pub mod value;
