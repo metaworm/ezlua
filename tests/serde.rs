@@ -42,7 +42,7 @@ fn overview() {
 }
 
 #[test]
-fn array() {
+fn array_null() {
     let lua = Lua::with_open_libs();
     lua.global()
         .set(
@@ -64,4 +64,19 @@ fn array() {
 
     assert_eq!(serde_json::to_string(&obj).unwrap(), "{}");
     assert_eq!(serde_json::to_string(&arr).unwrap(), "[]");
+
+    lua.global().set("null", lua.null_value()).unwrap();
+    let null: ValRef = lua
+        .load("return array {null}", None)
+        .unwrap()
+        .pcall(())
+        .unwrap();
+    let empty: ValRef = lua
+        .load("return array {nil}", None)
+        .unwrap()
+        .pcall(())
+        .unwrap();
+
+    assert_eq!(serde_json::to_string(&null).unwrap(), "[null]");
+    assert_eq!(serde_json::to_string(&empty).unwrap(), "[]");
 }

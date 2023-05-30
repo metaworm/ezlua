@@ -86,6 +86,11 @@ impl State {
         self.get_or_init_metatable(key)?;
         self.top_val().try_into()
     }
+
+    /// A special value to encode/decode optional (none) values.
+    pub fn null_value(&self) -> LuaValue {
+        LuaValue::light_userdata(Self::null_value as *const ())
+    }
 }
 
 /// Wrapper to serializable value
@@ -1040,7 +1045,7 @@ impl Serialize for ValRef<'_> {
                 if bytes.len() > 0x1000 {
                     serializer.serialize_bytes(bytes)
                 } else {
-                    match std::str::from_utf8(bytes) {
+                    match core::str::from_utf8(bytes) {
                         Ok(s) => serializer.serialize_str(s),
                         Err(_) => serializer.serialize_bytes(bytes),
                     }
