@@ -11,6 +11,10 @@ fn overview() {
     }
 
     let lua = Lua::with_open_libs();
+    let _occupation = (0..20)
+        .map(|_| lua.new_val(()).unwrap())
+        .collect::<Vec<_>>();
+
     let global = lua.global();
     let test = Test {
         str: "abc",
@@ -44,6 +48,10 @@ fn overview() {
 #[test]
 fn array_null() {
     let lua = Lua::with_open_libs();
+    let _occupation = (0..20)
+        .map(|_| lua.new_val(()).unwrap())
+        .collect::<Vec<_>>();
+
     lua.global()
         .set(
             "array",

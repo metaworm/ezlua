@@ -3,7 +3,6 @@ use std::rc::Rc;
 
 use ::serde::{Deserialize, Serialize};
 use ezlua::prelude::*;
-use ezlua::serde::SerdeValue;
 
 struct Test {
     a: i32,
@@ -49,6 +48,7 @@ impl UserData for RcTest {
 #[test]
 fn userdata() {
     let s = Lua::with_open_libs();
+    let _occupation = (0..20).map(|_| s.new_val(()).unwrap()).collect::<Vec<_>>();
 
     let uv = s.new_val(Test { a: 0 }).unwrap();
     assert_eq!(uv.type_of(), LuaType::Userdata);
@@ -89,6 +89,7 @@ fn userdata() {
 #[test]
 fn arguments() -> LuaResult<()> {
     let s = Lua::with_open_libs();
+    let _occupation = (0..20).map(|_| s.new_val(()).unwrap()).collect::<Vec<_>>();
 
     struct Test;
 
@@ -130,6 +131,7 @@ fn arguments() -> LuaResult<()> {
 #[test]
 fn call_lua() {
     let s = Lua::with_open_libs();
+    let _occupation = (0..20).map(|_| s.new_val(()).unwrap()).collect::<Vec<_>>();
 
     let g = s.global();
     assert_eq!(g.type_of(), LuaType::Table);
@@ -171,6 +173,7 @@ fn call_lua() {
 #[test]
 fn push_check() {
     let s = Lua::new();
+    let _occupation = (0..20).map(|_| s.new_val(()).unwrap()).collect::<Vec<_>>();
 
     struct Test;
 
@@ -227,6 +230,8 @@ fn table() {
 #[test]
 fn table_iter() {
     let s = Lua::with_open_libs();
+    let _occupation = (0..20).map(|_| s.new_val(()).unwrap()).collect::<Vec<_>>();
+
     let g = s.global();
     let table: LuaTable = g.get("table").unwrap().try_into().unwrap();
     table.set("bb", false).unwrap();
@@ -284,6 +289,10 @@ fn table_iter() {
 #[test]
 fn table_get() {
     let lua = Lua::with_open_libs();
+    let _occupation = (0..20)
+        .map(|_| lua.new_val(()).unwrap())
+        .collect::<Vec<_>>();
+
     lua.do_string("t = {}", None).unwrap();
     let t = lua.global().get("t").unwrap();
     t.set("key", "value").unwrap();
@@ -348,6 +357,7 @@ fn safe_reference() {
 #[test]
 fn error_balance() {
     let s = Lua::with_open_libs();
+    let _occupation = (0..20).map(|_| s.new_val(()).unwrap()).collect::<Vec<_>>();
 
     let top = s.stack_top();
     for _ in 0..10 {
@@ -367,6 +377,7 @@ fn error_balance() {
 #[test]
 fn convert() {
     let s = Lua::with_open_libs();
+    let _occupation = (0..20).map(|_| s.new_val(()).unwrap()).collect::<Vec<_>>();
 
     s.global()
         .set_closure("test", |args: MultiRet<i32>| {
@@ -402,6 +413,7 @@ fn convert() {
 #[test]
 fn convert_closure() {
     let s = Lua::with_open_libs();
+    let _occupation = (0..20).map(|_| s.new_val(()).unwrap()).collect::<Vec<_>>();
 
     let g = s.global();
     let magic = 0x3310234;

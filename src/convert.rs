@@ -57,6 +57,14 @@ pub trait LuaMethod<'a, THIS: 'a, ARGS: 'a, RET: 'a> {
     fn call_method(&self, lua: &'a State) -> Result<Pushed>;
 }
 
+pub(crate) trait ToLuaInner {
+    fn lua_push(self, lua: &State) -> Result<()>;
+}
+
+// impl<T: ToLua> ToLuaInner {
+//     fn lua_push(self, lua: &State) -> Result<()> {Ok(())}
+// }
+
 /// Trait for types that can be pushed onto the stack of a Lua
 pub trait ToLua: Sized {
     const __PUSH: Option<fn(Self, &State) -> Result<()>> = None;
@@ -242,16 +250,14 @@ impl<'a> FromLua<'a> for &'a str {
 
 impl<'a> FromLua<'a> for &'a [u8] {
     #[inline(always)]
-    fn from_index(s: &'a State, i: Index) -> Option<&'a [u8]> {
-        s.to_safe_bytes(i).or_else(|| unsafe {
-            let p: *mut core::ffi::c_void = s.to_userdata(i);
-            if p.is_null() {
+    fn from_lua(lua: &'a State, val: ValRef<'a>) -> Option<&'a [u8]> {
+        val.to_safe_bytes().or_else(|| unsafe {
+            // Treat userdata without metatable as bytes
+            let p: *mut core::ffi::c_void = lua.to_userdata(val.index);
+            if p.is_null() || val.has_metatable() {
                 None
             } else {
-                Some(core::slice::from_raw_parts(
-                    p.cast::<u8>(),
-                    s.raw_len(i) as _,
-                ))
+                Some(core::slice::from_raw_parts(p.cast::<u8>(), val.raw_len()))
             }
         })
     }
@@ -263,7 +269,7 @@ impl<'a, V: FromLua<'a> + 'static> FromLua<'a> for Vec<V> {
 
         let mut result = Vec::new();
         for i in 1..=t.raw_len() {
-            result.push(t.raw_geti(i as i64).cast::<V>()?);
+            result.push(t.raw_geti(i as i64).ok()?.cast::<V>()?);
         }
 
         Some(result)
@@ -785,17 +791,25 @@ impl State {
         extra_upval: usize,
     ) -> Result<Function<'_>> {
         if core::mem::size_of::<F>() == 0 {
+            self.check_stack(1)?;
             self.push_cclosure(Some(closure_wrapper::<'l, R, F>), 0);
         } else {
+            self.check_stack(2 + extra_upval as i32)?;
             self.push_userdatauv(f, 0)?;
-            let mt = self.new_table_with_size(0, 1)?;
-            mt.set("__gc", __gc::<F> as CFunction)?;
-            mt.0.ensure_top();
-            self.set_metatable(-2);
-            self.set_top(self.get_top() + extra_upval as i32);
-            self.push_cclosure(Some(closure_wrapper::<'l, R, F>), 1 + extra_upval as i32);
+            self.push_binding(closure_wrapper::<'l, R, F>, __gc::<F>, extra_upval)?;
         }
         self.top_val().try_into()
+    }
+
+    fn push_binding(&self, cfunc: CFunction, gc: CFunction, upvals: usize) -> Result<()> {
+        let mt = self.new_table_with_size(0, 1)?;
+        mt.set("__gc", gc)?;
+        mt.0.ensure_top();
+        self.set_metatable(-2);
+        self.set_top(self.get_top() + upvals as i32);
+        self.push_cclosure(Some(cfunc), 1 + upvals as i32);
+
+        Ok(())
     }
 }
 

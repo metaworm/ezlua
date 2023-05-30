@@ -5,6 +5,8 @@ macro_rules! binding_test {
         #[test]
         fn $name() {
             let s = Lua::with_open_libs();
+            let _occupation = (0..20).map(|_| s.new_val(()).unwrap()).collect::<Vec<_>>();
+
             ezlua::binding::init_global(&s).unwrap();
             s.load_file($path).unwrap().pcall_void(()).unwrap();
         }

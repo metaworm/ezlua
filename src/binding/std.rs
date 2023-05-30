@@ -625,7 +625,7 @@ pub mod thread {
         fn wait<'a>(&self, s: &'a LuaState, timeout: Option<u64>) -> Result<ValRef<'a>> {
             let lock = &self.lock;
             let cvar = &self.cvar;
-            Ok(if let Some(tm) = timeout {
+            if let Some(tm) = timeout {
                 let (i, r) = cvar
                     .wait_timeout(lock.lock().lua_result()?, Duration::from_millis(tm))
                     .map_err(LuaError::runtime_debug)?;
@@ -638,7 +638,7 @@ pub mod thread {
                     .wait(lock.lock().lua_result()?)
                     .map_err(LuaError::runtime_debug)?;
                 s.registry().raw_geti((*i) as i64)
-            })
+            }
         }
     }
 

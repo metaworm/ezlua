@@ -150,12 +150,14 @@ impl<'a> ValRef<'a> {
     }
 
     pub(crate) fn getf(&self, k: &CStr) -> ValRef {
+        self.state.check_stack(1).expect("stack");
         self.state.get_field(self.index, k);
         self.state.top_val()
     }
 
     #[inline]
     pub(crate) fn setf<V: ToLua>(&self, k: &CStr, v: V) -> Result<()> {
+        self.state.check_stack(1)?;
         self.state.push(v)?;
         self.state.set_field(self.index, k);
         Ok(())
@@ -171,6 +173,7 @@ impl<'a> ValRef<'a> {
             self.state
                 .protect_call((ArgRef(self.index), i.into()), protect_get)
         } else {
+            self.state.check_stack(1)?;
             self.state.geti(self.index, i.into());
             Ok(self.state.top_val())
         }
@@ -186,6 +189,7 @@ impl<'a> ValRef<'a> {
             self.state
                 .protect_call((ArgRef(self.index), i.into(), v), protect_set)
         } else {
+            self.state.check_stack(1)?;
             self.state.push(v)?;
             self.state.seti(self.index, i.into());
             Ok(())
@@ -218,6 +222,7 @@ impl<'a> ValRef<'a> {
             self.state
                 .protect_call((ArgRef(self.index), k, v), protect_set)
         } else {
+            self.state.check_stack(2)?;
             self.state.push(k)?;
             self.state.push(v)?;
             self.state.set_table(self.index);
@@ -236,6 +241,7 @@ impl<'a> ValRef<'a> {
             self.state
                 .protect_call((ArgRef(self.index), k), protect_get)
         } else {
+            self.state.check_stack(2)?;
             self.state.push(k)?;
             self.state.get_table(self.index);
             Ok(self.state.top_val())
@@ -260,7 +266,7 @@ impl<'a> ValRef<'a> {
     }
 
     pub fn has_metatable(&self) -> bool {
-        let result = self.state.get_metatable(self.index);
+        let result = self.state.check_stack(1).is_ok() && self.state.get_metatable(self.index);
         if result {
             self.state.pop(1);
         }
@@ -269,6 +275,7 @@ impl<'a> ValRef<'a> {
 
     /// Get metatable of lua table or userdata
     pub fn metatable(&self) -> Result<Option<Table<'a>>> {
+        self.state.check_stack(1)?;
         Ok(if self.state.get_metatable(self.index) {
             Some(self.state.top_val().try_into()?)
         } else {
@@ -278,6 +285,7 @@ impl<'a> ValRef<'a> {
 
     /// Set metatable for lua table or userdata
     pub fn set_metatable(&self, t: Table) -> Result<()> {
+        self.state.check_stack(1)?;
         self.state.pushval(t.0);
         self.state.set_metatable(self.index);
         Ok(())
@@ -285,6 +293,7 @@ impl<'a> ValRef<'a> {
 
     /// Remove metatable for lua table or userdata
     pub fn remove_metatable(&self) {
+        self.state.check_stack(1).expect("check");
         // TODO: thread lock
         self.state.push_nil();
         self.state.set_metatable(self.index);
@@ -309,8 +318,15 @@ impl<'a> ValRef<'a> {
         self.call_metamethod("__close", ArgRef(self.index))
     }
 
+    /// Tests whether two lua values are equal without metamethod triggers
     pub fn raw_equal(&self, other: &Self) -> bool {
         self.state.raw_equal(self.index, other.index)
+    }
+
+    /// Get length of the string/userdata/table without metamethod triggers
+    #[inline]
+    pub fn raw_len(&self) -> usize {
+        self.state.raw_len(self.index)
     }
 
     pub fn checked_into_value(self) -> Option<Value<'a>> {
@@ -390,8 +406,9 @@ impl<'a, V: AsRef<Table<'a>>> Iterator for TableIter<'a, V> {
     type Item = (ValRef<'a>, ValRef<'a>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.key.take().expect("next key must exists").ensure_top();
         let t = self.val.as_ref();
+        t.state.check_stack(3).expect("stack");
+        self.key.take().expect("next key must exists").ensure_top();
         if t.state.next(t.index) {
             let (k, val) = if let Some(val) = t.state.try_replace_top() {
                 (val.state.top_val(), val)
@@ -571,14 +588,16 @@ impl<'l> Table<'l> {
 
     /// Get value by number index without metamethod triggers
     #[inline]
-    pub fn raw_geti(&self, i: impl Into<lua_Integer>) -> ValRef<'l> {
+    pub fn raw_geti(&self, i: impl Into<lua_Integer>) -> Result<ValRef<'l>> {
+        self.state.check_stack(1)?;
         self.state.raw_geti(self.index, i.into());
-        self.state.top_val()
+        Ok(self.state.top_val())
     }
 
     /// Set value by number index without metamethod triggers
     #[inline]
     pub fn raw_seti<V: ToLua>(&self, i: impl Into<lua_Integer>, v: V) -> Result<()> {
+        self.state.check_stack(2)?;
         self.state.push(v)?;
         self.state.raw_seti(self.index, i.into());
         Ok(())
@@ -587,7 +606,7 @@ impl<'l> Table<'l> {
     /// Get the value associated to `key` without metamethod triggers
     #[inline]
     pub fn raw_get<K: ToLua>(&self, key: K) -> Result<ValRef<'l>> {
-        self.state.check_stack(3)?;
+        self.state.check_stack(2)?;
         self.state.push(key)?;
         self.state.raw_get(self.index);
         Ok(self.state.top_val())
@@ -602,12 +621,6 @@ impl<'l> Table<'l> {
         self.state.push(v)?;
         self.state.raw_set(self.index);
         Ok(())
-    }
-
-    /// Get length of the table without metamethod triggers
-    #[inline]
-    pub fn raw_len(&self) -> usize {
-        self.state.raw_len(self.index)
     }
 
     #[inline(always)]

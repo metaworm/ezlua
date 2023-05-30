@@ -779,7 +779,10 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
                 if self.1 > self.2 {
                     return Ok(None);
                 }
-                let val = self.0.raw_geti(self.1 as lua_Integer);
+                let val = self
+                    .0
+                    .raw_geti(self.1 as lua_Integer)
+                    .map_err(DesErr::custom)?;
                 self.1 += 1;
                 // Safety: val is also referenced by the self table
                 let val: &'de ValRef = unsafe { core::mem::transmute(&val) };
@@ -1079,7 +1082,9 @@ impl Serialize for ValRef<'_> {
                     if is_array || len > 0 {
                         let mut seq = serializer.serialize_seq(Some(len))?;
                         for i in 1..=len {
-                            seq.serialize_element(&t.raw_geti(i as lua_Integer))?;
+                            seq.serialize_element(
+                                &t.raw_geti(i as lua_Integer).map_err(Error::custom)?,
+                            )?;
                         }
                         seq.end()
                     } else {

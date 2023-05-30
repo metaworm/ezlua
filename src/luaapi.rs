@@ -1205,6 +1205,7 @@ impl State {
             Some(push) => {
                 #[cfg(debug_assertions)]
                 let top = self.get_top();
+                // self.check_stack(1)?;
                 push(value, self)?;
                 #[cfg(debug_assertions)]
                 assert_eq!(top + 1, self.get_top(), "{}", core::any::type_name::<T>());

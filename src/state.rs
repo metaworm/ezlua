@@ -8,8 +8,8 @@ use crate::{
     value::{ValRef, Value},
 };
 
-use alloc::{borrow::Cow, collections::BinaryHeap as Slots, format};
-use core::{cell::RefCell, ffi::c_char, ffi::c_int, str};
+use alloc::{collections::BinaryHeap as Slots, format};
+use core::{cell::RefCell, ffi::c_int, str};
 
 /// Safe wrapper for operation to lua_State
 #[derive(Debug)]
@@ -208,7 +208,10 @@ pub mod unsafe_impl {
         pub(crate) fn val(&self, i: Index) -> ValRef {
             debug_assert!(i > 0);
             if i <= self.base {
-                self.val_without_push(i)
+                ValRef {
+                    state: self,
+                    index: i,
+                }
             } else {
                 self.check_stack(1).expect("stack");
                 self.push_value(i);
@@ -309,7 +312,9 @@ pub mod unsafe_impl {
             init: F,
             global: bool,
         ) -> Result<()> {
-            assert!(core::mem::size_of::<F>() == 0);
+            assert_eq!(core::mem::size_of::<F>(), 0);
+            self.check_stack(5)?;
+            let _guard = self.stack_guard();
             self.requiref(
                 &CString::new(name).map_err(Error::runtime_debug)?,
                 crate::convert::function_wrapper(init),
@@ -321,6 +326,7 @@ pub mod unsafe_impl {
         /// Get the lua global table
         #[inline(always)]
         pub fn global(&self) -> Table {
+            self.check_stack(1).expect("stack");
             self.raw_geti(LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
             self.top_val().try_into().expect("table")
         }
@@ -333,7 +339,8 @@ pub mod unsafe_impl {
         }
 
         /// Stack backtrace info
-        pub fn backtrace(&self, co: Option<&State>, msg: &str, level: i32) -> String {
+        pub fn backtrace(&self, co: Option<&State>, msg: &str, level: i32) -> Result<String> {
+            self.check_stack(4)?;
             self.traceback(
                 co.map(|s| s.as_ptr()).unwrap_or(core::ptr::null_mut()),
                 CString::new(msg).unwrap().as_c_str(),
@@ -341,7 +348,7 @@ pub mod unsafe_impl {
             );
             let result = self.to_string_lossy(-1).unwrap_or_default().into_owned();
             self.pop(1);
-            result
+            Ok(result)
         }
 
         /// [-0, +1, -]
@@ -349,6 +356,7 @@ pub mod unsafe_impl {
             let top = self.get_top();
             let reg = self.registry();
             let p = callback as *const usize;
+            self.check_stack(6)?;
             let metatable = self.raw_getp(LUA_REGISTRYINDEX, p);
             if metatable.is_none_or_nil() {
                 let mt = self.new_table_with_size(0, 4)?;
@@ -386,6 +394,7 @@ pub mod unsafe_impl {
         pub unsafe fn test_userdata_meta<T>(&self, i: Index, meta: MetatableKey) -> Option<&mut T> {
             let _guard = self.stack_guard();
 
+            self.check_stack(2).expect("stack");
             let p = if self.get_metatable(i) && {
                 self.raw_getp(LUA_REGISTRYINDEX, meta as *const ());
                 self.raw_equal(-1, -2)
@@ -395,17 +404,6 @@ pub mod unsafe_impl {
                 core::ptr::null_mut()
             };
             (p as *mut T).as_mut()
-        }
-
-        /// [-1, +1, -]
-        pub fn trace_error(&self, s: Option<&Self>) -> Cow<'_, str> {
-            let err = self.to_str(-1).unwrap_or("");
-            self.pop(1);
-            unsafe {
-                let thread = s.unwrap_or(self);
-                luaL_traceback(self.state, thread.state, err.as_ptr() as *const c_char, 0);
-            }
-            self.to_string_lossy(-1).unwrap_or_default()
         }
 
         #[inline(always)]
@@ -497,14 +495,14 @@ pub mod unsafe_impl {
         }
 
         #[inline(always)]
-        pub unsafe fn error_string(self, e: impl AsRef<str>) -> ! {
+        pub(crate) unsafe fn error_string(self, e: impl AsRef<str>) -> ! {
             self.push_string(e.as_ref());
             core::mem::drop(e);
             self.error()
         }
 
         #[inline(always)]
-        pub unsafe fn raise_error(self, e: impl core::fmt::Debug) -> ! {
+        pub(crate) unsafe fn raise_error(self, e: impl core::fmt::Debug) -> ! {
             self.error_string(format!("{e:?}"))
         }
 
