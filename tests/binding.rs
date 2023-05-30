@@ -19,4 +19,5 @@ binding_test!(thread, "tests/thread.lua");
 
 binding_test!(stdlib, "tests/test_std.lua");
 
+#[cfg(feature = "json")]
 binding_test!(json, "tests/json.lua");

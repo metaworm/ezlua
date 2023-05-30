@@ -367,7 +367,7 @@ pub mod unsafe_impl {
                 mt.0.ensure_top();
                 self.replace(-2);
             }
-            assert_eq!(self.get_top(), top + 1);
+            debug_assert_eq!(self.get_top(), top + 1);
 
             Ok(())
         }

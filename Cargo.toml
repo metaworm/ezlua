@@ -36,6 +36,7 @@ serde_bytes = {version = '0.11', optional = true}
 serde = {version = '1.0', default-features = false, features = ['rc', 'derive']}
 
 [dev-dependencies]
+serde_json = '1'
 tokio = {version = '1.4', features = ["net", "time", "macros", "rt"]}
 ezlua = {path = ".", features = ['vendored', 'thread', 'async']}
 mlua = {version = '0.8', features = ['lua54', 'vendored']}

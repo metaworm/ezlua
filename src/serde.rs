@@ -75,6 +75,17 @@ impl State {
     ) -> Result<ValRef<'de>, LuaError> {
         serde_transcode::transcode(deserializer, LuaSerializer(self))
     }
+
+    /// A metatable attachable to a Lua table to systematically encode it as Array (instead of Map).
+    /// As result, encoded Array will contain only sequence part of the table, with the same length as the # operator on that table.
+    pub fn array_metatable(&self) -> LuaResult<LuaTable> {
+        fn key(_: &LuaTable) -> LuaResult<()> {
+            Ok(())
+        }
+
+        self.get_or_init_metatable(key)?;
+        self.top_val().try_into()
+    }
 }
 
 /// Wrapper to serializable value
@@ -1048,28 +1059,30 @@ impl Serialize for ValRef<'_> {
             _ => {
                 if let Some(t) = self.as_table() {
                     let len = t.raw_len() as usize;
-                    t.state.check_stack(3).map_err(Error::custom)?;
+                    let is_array = t
+                        .metatable()
+                        .map_err(Error::custom)?
+                        .filter(|mt| {
+                            self.state
+                                .array_metatable()
+                                .map(|a| a.raw_equal(mt))
+                                .unwrap_or_default()
+                        })
+                        .is_some();
 
-                    if len > 0 {
+                    t.state.check_stack(3).map_err(Error::custom)?;
+                    if is_array || len > 0 {
                         let mut seq = serializer.serialize_seq(Some(len))?;
                         for i in 1..=len {
                             seq.serialize_element(&t.raw_geti(i as lua_Integer))?;
                         }
                         seq.end()
                     } else {
-                        // get count of entries in the table
-                        let count = t.entry_count();
-
-                        // serialize empty table as empty array
-                        if count == 0 {
-                            serializer.serialize_seq(Some(len))?.end()
-                        } else {
-                            let mut map = serializer.serialize_map(Some(count))?;
-                            for (k, v) in t.iter().map_err(Error::custom)? {
-                                map.serialize_entry(&k, &v)?;
-                            }
-                            map.end()
+                        let mut map = serializer.serialize_map(None)?;
+                        for (k, v) in t.iter().map_err(Error::custom)? {
+                            map.serialize_entry(&k, &v)?;
                         }
+                        map.end()
                     }
                 } else {
                     serializer.serialize_none()

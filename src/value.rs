@@ -309,6 +309,10 @@ impl<'a> ValRef<'a> {
         self.call_metamethod("__close", ArgRef(self.index))
     }
 
+    pub fn raw_equal(&self, other: &Self) -> bool {
+        self.state.raw_equal(self.index, other.index)
+    }
+
     pub fn checked_into_value(self) -> Option<Value<'a>> {
         Some(match self.type_of() {
             Type::None | Type::Invalid => return None,
