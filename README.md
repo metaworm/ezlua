@@ -2,6 +2,12 @@
 [![crates.io](https://img.shields.io/crates/v/ezlua.svg)](https://crates.io/crates/ezlua)
 [![docs.rs](https://docs.rs/ezlua/badge.svg)](https://docs.rs/ezlua)
 
+[ChangeLog] | [FAQ] | [Known issues]
+
+[ChangeLog]: CHANGELOG.md
+[FAQ]: FAQ.md
+[Known issues]: https://github.com/metaworm/ezlua/labels/known%20issues
+
 Ergonomic, efficient and Zero-cost rust bindings to Lua5.4
 
 ## Features
@@ -31,7 +37,7 @@ See [builtin bindings](https://github.com/metaworm/ezlua/tree/master/src/binding
 First, add ezlua to your dependencies in Cargo.toml
 ```toml
 [dependencies]
-ezlua = { version = '0.2' }
+ezlua = { version = '0.3' }
 ```
 
 Then, use ezlua in rust, the code framework like this
@@ -236,7 +242,7 @@ assert(json.load(json.dump(dir)) == dir)
 To use multiple thread feature in lua, you need to specify the `thread` feature in Cargo.toml, and patch the lua-src crate with [ezlua's custom](https://github.com/metaworm/lua-src-rs)
 ```toml
 [dependencies]
-ezlua = { version = '0.2', features = ['thread'] }
+ezlua = { version = '0.3', features = ['thread'] }
 
 [patch.crates-io]
 lua-src = { git = "https://github.com/metaworm/lua-src-rs" }
