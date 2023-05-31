@@ -457,3 +457,23 @@ fn stack() {
         .pcall_void(MultiRet(args))
         .unwrap();
 }
+
+#[test]
+fn non_table_access() {
+    let lua = Lua::new();
+    let t = lua.new_table().unwrap();
+    let nil = lua.new_val(()).unwrap();
+    let num = lua.new_val(123).unwrap();
+
+    t.get("key").unwrap();
+
+    nil.get("key").unwrap_err();
+    num.get("key").unwrap_err();
+    nil.set("key", "val").unwrap_err();
+    num.set("key", "val").unwrap_err();
+
+    nil.geti(1).unwrap_err();
+    num.geti(1).unwrap_err();
+    nil.seti(1, 2).unwrap_err();
+    num.seti(1, 2).unwrap_err();
+}

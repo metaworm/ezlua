@@ -5,4 +5,6 @@
 - Remove `ValRef::check_cast`
 - `FromLua::from_lua` returns `Result<Self>` instead of `Option<Self>`
 - `ValRef::cast` returns `Result<>` instead of `Option<>`
-- More `check_stack` for preventing assert(aborting) from lua
+- More soundness
+  1. More `check_stack` for preventing assert(aborting) from lua
+  2. Non-table and non-userdata access check

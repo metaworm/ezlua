@@ -149,6 +149,15 @@ impl<'a> ValRef<'a> {
         self.state.check_type(self.index, ty)
     }
 
+    pub fn check_type2(&self, ty1: Type, ty2: Type) -> Result<()> {
+        let ty = self.type_of();
+        if ty == ty1 || ty == ty2 {
+            Ok(())
+        } else {
+            Err(Error::TypeNotMatch(ty))
+        }
+    }
+
     #[inline]
     pub fn cast<'v, T: FromLua<'a> + 'v>(&'v self) -> Result<T> {
         self.clone().cast_into()
@@ -173,7 +182,6 @@ impl<'a> ValRef<'a> {
         Ok(())
     }
 
-    #[inline]
     pub fn geti(&self, i: impl Into<lua_Integer>) -> Result<ValRef<'a>> {
         if self.has_metatable() {
             unsafe extern "C" fn protect_get(l: *mut ffi::lua_State) -> i32 {
@@ -183,13 +191,13 @@ impl<'a> ValRef<'a> {
             self.state
                 .protect_call((ArgRef(self.index), i.into()), protect_get)
         } else {
+            self.check_type2(Type::Table, Type::Userdata)?;
             self.state.check_stack(1)?;
             self.state.geti(self.index, i.into());
             Ok(self.state.top_val())
         }
     }
 
-    #[inline]
     pub fn seti<V: ToLua>(&self, i: impl Into<lua_Integer>, v: V) -> Result<()> {
         if self.has_metatable() {
             unsafe extern "C" fn protect_set(l: *mut ffi::lua_State) -> i32 {
@@ -199,6 +207,7 @@ impl<'a> ValRef<'a> {
             self.state
                 .protect_call((ArgRef(self.index), i.into(), v), protect_set)
         } else {
+            self.check_type2(Type::Table, Type::Userdata)?;
             self.state.check_stack(1)?;
             self.state.push(v)?;
             self.state.seti(self.index, i.into());
@@ -222,7 +231,6 @@ impl<'a> ValRef<'a> {
     }
 
     /// Set value, equivalent to `self[k] = v` in lua
-    #[inline]
     pub fn set<K: ToLua, V: ToLua>(&self, k: K, v: V) -> Result<()> {
         if self.has_metatable() {
             unsafe extern "C" fn protect_set(l: *mut ffi::lua_State) -> i32 {
@@ -232,6 +240,7 @@ impl<'a> ValRef<'a> {
             self.state
                 .protect_call((ArgRef(self.index), k, v), protect_set)
         } else {
+            self.check_type2(Type::Table, Type::Userdata)?;
             self.state.check_stack(2)?;
             self.state.push(k)?;
             self.state.push(v)?;
@@ -241,7 +250,6 @@ impl<'a> ValRef<'a> {
     }
 
     /// Get value associated, equivalent to  `return self[k]` in lua
-    #[inline]
     pub fn get<K: ToLua>(&self, k: K) -> Result<ValRef<'a>> {
         if self.has_metatable() {
             unsafe extern "C" fn protect_get(l: *mut ffi::lua_State) -> i32 {
@@ -251,6 +259,7 @@ impl<'a> ValRef<'a> {
             self.state
                 .protect_call((ArgRef(self.index), k), protect_get)
         } else {
+            self.check_type2(Type::Table, Type::Userdata)?;
             self.state.check_stack(2)?;
             self.state.push(k)?;
             self.state.get_table(self.index);
