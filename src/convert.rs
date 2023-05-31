@@ -351,11 +351,19 @@ macro_rules! impl_integer {
 
 impl_integer!(isize usize u8 u16 u32 u64 i8 i16 i32 i64);
 
+/// Types which can be pushed onto lua stack,
+/// as returned multiple values to lua function,
+/// or as passed multiple arguments to lua function
 pub trait ToLuaMulti: Sized {
+    /// Count of values to be pushed to lua stack
+    const VALUE_COUNT: Option<usize> = None;
+
+    /// Get the count of values to be pushed to lua stack, with self instance
     fn value_count(&self) -> Option<usize> {
-        None
+        Self::VALUE_COUNT
     }
 
+    /// Define how to push values onto lua stack
     fn push_multi(self, lua: &State) -> Result<usize> {
         Ok(0)
     }
@@ -406,6 +414,8 @@ impl<'a, T: FromLua<'a> + 'a> FromLua<'a> for MultiRet<T> {
     }
 }
 
+/// Types which can be converted from values passed from lua,
+/// or returned results from lua function invocation
 pub trait FromLuaMulti<'a>: Sized {
     const COUNT: usize = 0;
 
@@ -421,10 +431,7 @@ impl FromLuaMulti<'_> for () {
 }
 
 impl<T: ToLua> ToLuaMulti for T {
-    #[inline]
-    fn value_count(&self) -> Option<usize> {
-        1.into()
-    }
+    const VALUE_COUNT: Option<usize> = Some(1);
 
     #[inline]
     fn push_multi(self, s: &State) -> Result<usize> {
@@ -595,10 +602,7 @@ impl_method!();
 macro_rules! impl_tuple {
     ($(($x:ident, $i:tt)) +) => (
         impl<$($x,)*> ToLuaMulti for ($($x,)*) where $($x: ToLua,)* {
-            #[inline(always)]
-            fn value_count(&self) -> Option<usize> {
-                Some(${count(x)})
-            }
+            const VALUE_COUNT: Option<usize> = Some(${count(x)});
 
             #[inline(always)]
             fn push_multi(self, s: &State) -> Result<usize> {

@@ -10,9 +10,7 @@ use crate::serde::SerdeValue;
 use crate::userdata::UserdataRegistry;
 
 impl<T: ToLua> ToLuaMulti for Range<T> {
-    fn value_count(&self) -> Option<usize> {
-        Some(2)
-    }
+    const VALUE_COUNT: Option<usize> = Some(2);
 
     fn push_multi(self, s: &LuaState) -> Result<usize> {
         (self.start, self.end).push_multi(s)
@@ -213,11 +211,7 @@ pub mod process {
         }
     }
 
-    impl ToLuaMulti for ExitStatus {
-        fn push_multi(self, s: &LuaState) -> Result<usize> {
-            (self.success(), self.code()).push_multi(s)
-        }
-    }
+    crate::impl_toluamulti!(ExitStatus as (bool, Option<i32>): |self| (self.success(), self.code()));
 
     impl UserData for Command {
         type Trans = RefCell<Self>;

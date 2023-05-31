@@ -45,3 +45,19 @@ macro_rules! impl_fromlua_as_serde {
         }
     };
 }
+
+#[macro_export]
+macro_rules! impl_toluamulti {
+    ($t:ty as $as:ty: |$self:ident| $map:expr) => {
+        impl $crate::prelude::ToLuaMulti for $t {
+            const VALUE_COUNT: Option<usize> = <$as as $crate::prelude::ToLuaMulti>::VALUE_COUNT;
+
+            fn push_multi(
+                $self,
+                lua: &$crate::prelude::LuaState,
+            ) -> $crate::prelude::LuaResult<usize> {
+                $crate::prelude::ToLuaMulti::push_multi($map, lua)
+            }
+        }
+    };
+}
