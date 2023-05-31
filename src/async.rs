@@ -2,7 +2,7 @@ use crate::{
     convert::*,
     coroutine::Coroutine,
     error::{Error, Result},
-    ffi::{self, lua_State, lua_gettop, CFunction},
+    ffi::{self, lua_State},
     luaapi::*,
     state::State,
     value::*,
@@ -21,7 +21,7 @@ struct TaskWrapper<'a>(
     >,
 );
 
-impl ValRef<'_> {
+impl Function<'_> {
     #[inline(always)]
     pub async fn call_async_void<'a, T: ToLuaMulti>(&'a self, args: T) -> Result<()> {
         self.call_async(args).await
@@ -43,7 +43,6 @@ impl ValRef<'_> {
     ) -> Result<R> {
         let guard = self.state.stack_guard();
 
-        self.check_type(Type::Function)?;
         self.state
             .check_stack(args.value_count().unwrap_or(10) as i32 + 2)?;
         self.state.push_value(self.index);
@@ -54,9 +53,11 @@ impl ValRef<'_> {
         let result_base = guard.top() + 1;
         self.state.to_multi_balance(guard, result_base)
     }
+}
 
+impl Table<'_> {
     #[inline(always)]
-    pub fn register_async<
+    pub fn set_async_closure<
         'l,
         K: ToLua,
         A: FromLuaMulti<'l> + Tuple,
@@ -90,7 +91,6 @@ impl Coroutine {
     ) -> Result<R> {
         let guard = self.stack_guard();
 
-        self.check_type(1, Type::Function)?;
         self.state
             .check_stack(args.value_count().unwrap_or(10) as i32 + 2)?;
 
@@ -128,7 +128,7 @@ impl State {
             status: c_int,
             ctx: ffi::lua_KContext,
         ) -> c_int {
-            lua_gettop(l)
+            ffi::lua_gettop(l)
         }
 
         unsafe {
@@ -206,14 +206,12 @@ impl State {
         f: F,
     ) -> Result<Function> {
         if core::mem::size_of::<F>() == 0 {
+            self.check_stack(1)?;
             self.push_cclosure(Some(async_closure_wrapper::<R, FUT, F>), 0);
         } else {
+            self.check_stack(2)?;
             self.push_userdatauv(f, 0)?;
-            let mt = self.new_table_with_size(0, 1)?;
-            mt.set("__gc", __gc::<F> as CFunction)?;
-            mt.0.ensure_top();
-            self.set_metatable(-2);
-            self.push_cclosure(Some(async_closure_wrapper::<R, FUT, F>), 1);
+            self.push_binding(async_closure_wrapper::<R, FUT, F>, __gc::<F>, 0)?;
         }
         self.top_val().try_into()
     }
@@ -237,7 +235,6 @@ impl State {
             match status {
                 ThreadStatus::Yield => {
                     debug_assert!(nres > 0);
-                    // std::println!("nres: {nres}");
 
                     let task = unsafe {
                         self.to_userdata_typed::<TaskWrapper>(-1)
@@ -267,7 +264,6 @@ impl State {
                     } else {
                         debug_assert!(top == base);
                     }
-                    // std::println!("nargs: {nargs}");
                 }
                 ThreadStatus::Ok => {
                     // at the end, function in coroutine was also poped

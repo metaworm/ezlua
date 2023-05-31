@@ -104,8 +104,8 @@ pub mod path {
 
     impl<'a> FromLua<'a> for &'a Path {
         #[inline(always)]
-        fn from_lua(s: &'a LuaState, val: ValRef<'a>) -> Option<Self> {
-            Path::new(val.to_safe_str()?).into()
+        fn from_lua(lua: &'a LuaState, val: ValRef<'a>) -> Result<Self> {
+            Ok(Path::new(<&str as FromLua>::from_lua(lua, val)?))
         }
     }
 
@@ -126,8 +126,12 @@ pub mod path {
 
     impl FromLua<'_> for PathBuf {
         #[inline(always)]
-        fn from_lua(s: &LuaState, val: ValRef) -> Option<Self> {
-            Path::new(val.to_str()?).to_path_buf().into()
+        fn from_lua(s: &LuaState, val: ValRef) -> Result<Self> {
+            Ok(Path::new(
+                val.to_str()
+                    .ok_or_else(|| LuaError::TypeNotMatch(val.type_of()))?,
+            )
+            .to_path_buf())
         }
     }
 }
@@ -152,13 +156,14 @@ pub mod time {
     }
 
     impl<'a> FromLua<'a> for Duration {
-        fn from_lua(s: &'a LuaState, val: ValRef<'a>) -> Option<Self> {
-            Some(match val.into_value() {
+        fn from_lua(_: &'a LuaState, val: ValRef<'a>) -> Result<Self> {
+            let ty = val.type_of();
+            Ok(match val.into_value() {
                 LuaValue::Integer(n) => Duration::from_secs(n as _),
                 LuaValue::Number(n) => Duration::from_secs_f64(n),
                 // TODO: 1s 1ms 1ns
                 // LuaValue::Str(_) => todo!(),
-                _ => return None,
+                _ => return Err(LuaError::TypeNotMatch(ty)),
             })
         }
     }
@@ -186,21 +191,21 @@ pub mod process {
     }
 
     impl<'a> FromLua<'a> for ReadArg {
-        fn from_lua(s: &'a LuaState, val: ValRef<'a>) -> Option<Self> {
+        fn from_lua(lua: &'a LuaState, val: ValRef<'a>) -> Result<Self> {
             if val.is_integer() {
-                Some(Self::Exact(val.cast()?))
+                Ok(Self::Exact(val.cast()?))
             } else {
-                match <&str as FromLua>::from_index(s, val.index())? {
-                    "a" | "*" | "*a" => Some(Self::All),
-                    _ => None,
+                match <&str as FromLua>::from_lua(lua, val)? {
+                    "a" | "*" | "*a" => Ok(Self::All),
+                    _ => Err("invalid read arg").lua_result(),
                 }
             }
         }
     }
 
     impl FromLua<'_> for Stdio {
-        fn from_index(s: &LuaState, i: Index) -> Option<Self> {
-            Some(match <&str as FromLua>::from_index(s, i)? {
+        fn from_lua(lua: &LuaState, val: ValRef) -> Result<Self> {
+            Ok(match <&str as FromLua>::from_lua(lua, val)? {
                 "pipe" | "piped" => Stdio::piped(),
                 "inherit" => Stdio::inherit(),
                 "null" | _ => Stdio::null(),
@@ -407,7 +412,7 @@ pub fn extend_os(s: &LuaState) -> Result<()> {
     use std::process::{Command, Stdio};
 
     fn init_command(arg: LuaTable) -> Result<Command> {
-        let mut args: SerdeValue<Vec<&str>> = arg.check_cast()?;
+        let mut args: SerdeValue<Vec<&str>> = arg.cast()?;
         if args.is_empty() {
             Err("empty command").lua_result()?;
         }
@@ -471,8 +476,8 @@ pub fn extend_string(s: &LuaState) -> Result<()> {
     string.set_closure("trim_end", str::trim_end)?;
 
     impl FromLua<'_> for glob::Pattern {
-        fn from_lua(s: &LuaState, val: ValRef) -> Option<Self> {
-            glob::Pattern::new(val.to_str()?).ok()
+        fn from_lua(lua: &LuaState, val: ValRef) -> Result<Self> {
+            glob::Pattern::new(<&str as FromLua>::from_lua(lua, val)?).lua_result()
         }
     }
 

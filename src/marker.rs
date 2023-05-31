@@ -5,10 +5,10 @@ use alloc::{boxed::Box, vec::Vec};
 
 use crate::{
     convert::{FromLua, Index, ToLua, ToLuaMulti},
-    error::Result,
+    error::{Error, Result},
     ffi,
     luaapi::{Reference, UnsafeLuaApi},
-    prelude::{ArcLuaInner, LuaResult, LuaType},
+    prelude::{ArcLuaInner, LuaType},
     state::State,
     value::ValRef,
 };
@@ -21,7 +21,7 @@ impl<T: ToLuaMulti> ToLuaMulti for NilError<T> {
         self.0.value_count()
     }
 
-    fn push_multi(self, s: &crate::state::State) -> LuaResult<usize> {
+    fn push_multi(self, s: &crate::state::State) -> Result<usize> {
         match self.0.push_multi(s) {
             Ok(res) => Ok(res),
             Err(err) => ((), err.to_string()).push_multi(s),
@@ -90,30 +90,21 @@ impl<K: ToLua, V: ToLua, I: Iterator<Item = (K, V)>> ToLua for IterMap<K, V, I> 
 }
 
 impl FromLua<'_> for StrictBool {
-    fn from_index(s: &State, i: Index) -> Option<StrictBool> {
-        if s.is_bool(i) {
-            Some(Strict(s.to_bool(i)))
-        } else {
-            None
-        }
+    fn from_lua(lua: &State, val: ValRef) -> Result<StrictBool> {
+        val.check_type(LuaType::Boolean)?;
+        Ok(Strict(val.to_bool()))
     }
 }
 
 impl<'a> FromLua<'a> for Strict<&'a [u8]> {
-    fn from_index(s: &'a State, i: Index) -> Option<Self> {
-        if s.type_of(i) == LuaType::String {
-            s.to_safe_bytes(i).map(Strict)
-        } else {
-            None
-        }
+    fn from_lua(s: &'a State, val: ValRef<'a>) -> Result<Self> {
+        val.to_safe_bytes().map(Strict)
     }
 }
 
 impl<'a> FromLua<'a> for Strict<&'a str> {
-    fn from_index(s: &'a State, i: Index) -> Option<Self> {
-        core::str::from_utf8(Strict::<&'a [u8]>::from_index(s, i)?.0)
-            .ok()
-            .map(Strict)
+    fn from_lua(s: &'a State, val: ValRef<'a>) -> Result<Self> {
+        val.to_safe_str().map(Strict)
     }
 }
 
@@ -123,7 +114,7 @@ impl ToLua for ArgRef {
 }
 
 impl ToLua for &RegVal {
-    const __PUSH: Option<fn(Self, &State) -> LuaResult<()>> = Some(|this, s| unsafe {
+    const __PUSH: Option<fn(Self, &State) -> Result<()>> = Some(|this, s| unsafe {
         ffi::lua_rawgeti(s.raw_state(), ffi::LUA_REGISTRYINDEX, this.reference.0 as _);
         Ok(())
     });
@@ -153,7 +144,7 @@ impl<T: ToLuaMulti + 'static> StaticIter<'static, T> {
 }
 
 impl<T: ToLuaMulti> ToLua for StaticIter<'static, T> {
-    fn to_lua<'a>(self, s: &'a State) -> LuaResult<ValRef<'a>> {
+    fn to_lua<'a>(self, s: &'a State) -> Result<ValRef<'a>> {
         unsafe { s.new_iter(self.0, [(); 0]) }.map(Into::into)
     }
 }
@@ -189,13 +180,17 @@ impl State {
 pub struct LuaBytes(pub Vec<u8>);
 
 impl ToLua for LuaBytes {
-    fn to_lua<'a>(self, s: &'a State) -> LuaResult<ValRef<'a>> {
+    fn to_lua<'a>(self, s: &'a State) -> Result<ValRef<'a>> {
         self.0.as_slice().to_lua(s)
     }
 }
 
 impl FromLua<'_> for LuaBytes {
-    fn from_index(s: &State, i: Index) -> Option<Self> {
-        Some(Self(<&[u8] as FromLua>::from_index(s, i)?.to_vec()))
+    fn from_lua(lua: &State, val: ValRef) -> Result<Self> {
+        Ok(Self(
+            val.to_bytes()
+                .ok_or_else(|| Error::TypeNotMatch(val.type_of()))?
+                .to_vec(),
+        ))
     }
 }

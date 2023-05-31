@@ -98,7 +98,7 @@ impl Coroutine {
 }
 
 impl FromLua<'_> for Coroutine {
-    fn from_lua(s: &State, val: ValRef) -> Option<Self> {
-        Self::new(val).ok()
+    fn from_lua(s: &State, val: ValRef) -> Result<Self> {
+        Self::new(val)
     }
 }

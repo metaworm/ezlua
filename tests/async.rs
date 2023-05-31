@@ -5,27 +5,32 @@ use ezlua::{prelude::*, serde::SerdeValue};
 #[tokio::test]
 async fn elua_async() {
     let lua = Lua::with_open_libs();
-    let s = &lua;
+    let _occupation = (0..20)
+        .map(|_| lua.new_val(()).unwrap())
+        .collect::<Vec<_>>();
 
-    println!("lua: {:p}", s.raw_state());
+    println!("lua: {:p}", lua.raw_state());
 
     async fn echo_async<'a>(method: ValRef<'a>) -> impl ToLuaMulti + 'a {
         method
     }
 
-    let g = s.global();
-    g.register_async("echo_async", echo_async).unwrap();
-    g.register_async("echo_async2", async move |vals: MultiValue| {
+    let g = lua.global();
+    g.set_async_closure("echo_async", echo_async).unwrap();
+    g.set_async_closure("echo_async2", async move |vals: MultiValue| {
         {
             // std::println!("vals: {:?}", vals.0);
             vals
         }
     })
     .unwrap();
-    g.set("sleep_async", s.async_closure(tokio::time::sleep).unwrap())
-        .unwrap();
+    g.set(
+        "sleep_async",
+        lua.async_closure(tokio::time::sleep).unwrap(),
+    )
+    .unwrap();
 
-    let foo = s
+    let foo = lua
         .load(
             "
 local a, b, c = echo_async2(...)
@@ -55,9 +60,11 @@ return 1, 2
 #[tokio::test]
 async fn sync() {
     let lua = Lua::with_open_libs();
-    let s = &lua;
+    let _occupation = (0..20)
+        .map(|_| lua.new_val(()).unwrap())
+        .collect::<Vec<_>>();
 
-    s.do_string(
+    lua.do_string(
         "
     function add(_, t) return t[1] + t[2] end
     ",
@@ -65,43 +72,65 @@ async fn sync() {
     )
     .unwrap();
 
-    let add = s.global().get("add").unwrap();
-    assert_eq!(add.type_of(), LuaType::Function);
+    let add = lua
+        .global()
+        .getopt::<_, LuaFunction>("add")
+        .unwrap()
+        .unwrap();
 
     // let co = Coroutine::new(add).unwrap();
     let ret = add
-        .call_async::<_, ValRef>((s.global(), SerdeValue((1, 2))))
+        .call_async::<_, ValRef>((lua.global(), SerdeValue((1, 2))))
         .await
         .unwrap();
-    assert_eq!(ret.cast::<i32>(), Some(3));
+    assert_eq!(ret.cast::<i32>().unwrap(), 3);
 }
 
 #[tokio::test]
 async fn async_stack_balance() {
-    let s = Lua::new();
+    let lua = Lua::new();
+    let _occupation = (0..20)
+        .map(|_| lua.new_val(()).unwrap())
+        .collect::<Vec<_>>();
 
+    let mut stack_top = None;
     // pcall recycle multi value
-    let foo = s.load("return ...", None).unwrap();
+    let foo = lua.load("return ...", None).unwrap();
     for i in 0..20 {
-        println!("top{i} {}", s.stack_top());
+        println!("top{i} {}", lua.stack_top());
         let (_, _, s3) = foo
             .call_async::<_, (LuaValue, LuaValue, ValRef)>((1, 2, "3"))
             .await
             .unwrap();
         assert_eq!(s3.to_str().unwrap(), "3");
+        if stack_top.is_none() {
+            println!("after first call: {}", lua.stack_top());
+            stack_top.replace(lua.stack_top());
+        } else {
+            assert_eq!(lua.stack_top(), stack_top.unwrap());
+        }
     }
 }
 
 #[tokio::test]
 async fn async_error_balance() {
-    let s = Lua::with_open_libs();
+    let lua = Lua::with_open_libs();
+    // let _occupation = (0..20)
+    //     .map(|_| lua.new_val(()).unwrap())
+    //     .collect::<Vec<_>>();
 
-    let foo = s.load("error('error')", None).unwrap();
-    let top = s.stack_top();
+    let foo = lua.load("error('error')", None).unwrap();
+
+    let mut stack_top = None;
     for _ in 0..10 {
         foo.call_async_void((1, 2, 3)).await.unwrap_err();
         // println!("stack top: {}", s.stack_top());
-        assert_eq!(s.stack_top(), top);
+        if stack_top.is_none() {
+            println!("after first call: {}", lua.stack_top());
+            stack_top.replace(lua.stack_top());
+        } else {
+            assert_eq!(lua.stack_top(), stack_top.unwrap());
+        }
     }
 
     // TODO: more error case

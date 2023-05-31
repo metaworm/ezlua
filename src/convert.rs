@@ -1,7 +1,7 @@
 //! Main implementation for type conversion between lua and rust
 
 use crate::{
-    error::{Error, Result},
+    error::{Error, Result, ToLuaResult},
     ffi::{self, *},
     luaapi::*,
     marker::{IterMap, IterVec, Pushed, Strict},
@@ -46,9 +46,9 @@ impl ToLua for serde_bytes::ByteBuf {
 
 #[cfg(feature = "serde_bytes")]
 impl FromLua<'_> for serde_bytes::ByteBuf {
-    fn from_index(s: &State, i: Index) -> Option<Self> {
-        Some(serde_bytes::ByteBuf::from(
-            <&[u8] as FromLua>::from_index(s, i)?.to_vec(),
+    fn from_lua(s: &State, val: ValRef) -> Result<Self> {
+        Ok(serde_bytes::ByteBuf::from(
+            <&[u8] as FromLua>::from_lua(s, val)?.to_vec(),
         ))
     }
 }
@@ -57,16 +57,9 @@ pub trait LuaMethod<'a, THIS: 'a, ARGS: 'a, RET: 'a> {
     fn call_method(&self, lua: &'a State) -> Result<Pushed>;
 }
 
-pub(crate) trait ToLuaInner {
-    fn lua_push(self, lua: &State) -> Result<()>;
-}
-
-// impl<T: ToLua> ToLuaInner {
-//     fn lua_push(self, lua: &State) -> Result<()> {Ok(())}
-// }
-
 /// Trait for types that can be pushed onto the stack of a Lua
 pub trait ToLua: Sized {
+    #[doc(hidden)]
     const __PUSH: Option<fn(Self, &State) -> Result<()>> = None;
 
     fn to_lua<'a>(self, lua: &'a State) -> Result<ValRef<'a>> {
@@ -200,58 +193,56 @@ impl<K: ToLua, V: ToLua> ToLua for HashMap<K, V> {
 pub trait FromLua<'a>: Sized {
     const TYPE_NAME: &'static str = core::any::type_name::<Self>();
 
-    fn from_index(lua: &'a State, i: Index) -> Option<Self> {
-        Self::from_lua(lua, lua.val(i))
-    }
+    fn from_lua(lua: &'a State, val: ValRef<'a>) -> Result<Self>;
+}
 
-    fn from_lua(lua: &'a State, val: ValRef<'a>) -> Option<Self> {
-        None
-    }
-
-    fn check(lua: &'a State, i: Index) -> Result<Self> {
-        Self::from_index(lua, i).ok_or_else(|| {
-            Error::convert(alloc::format!(
-                "cast #{i}({}) failed, expect {}",
-                lua.type_of(i),
-                Self::TYPE_NAME
-            ))
-        })
-    }
+pub(crate) fn check_from_lua<'a, T: FromLua<'a>>(lua: &'a State, i: Index) -> Result<T> {
+    lua.from_index.set(i);
+    T::from_lua(lua, lua.val(i)).map_err(|err| {
+        Error::convert(alloc::format!(
+            "cast #{i}({}) failed, expect {}: {err:?}",
+            lua.type_of(i),
+            T::TYPE_NAME
+        ))
+    })
 }
 
 impl<'a> FromLua<'a> for ValRef<'a> {
     #[inline(always)]
-    fn from_index(s: &'a State, i: Index) -> Option<Self> {
-        s.val(i).check_valid()
+    fn from_lua(s: &'a State, val: ValRef<'a>) -> Result<Self> {
+        val.check_valid().ok_or("value is invalid").lua_result()
     }
 }
 
 impl<'a> FromLua<'a> for Value<'a> {
     #[inline(always)]
-    fn from_index(s: &'a State, i: Index) -> Option<Value<'a>> {
-        s.val(i).checked_into_value()
+    fn from_lua(s: &'a State, val: ValRef<'a>) -> Result<Value<'a>> {
+        val.checked_into_value()
+            .ok_or("value is invalid")
+            .lua_result()
     }
 }
 
 impl FromLua<'_> for String {
     #[inline(always)]
-    fn from_index(s: &State, i: Index) -> Option<String> {
-        s.to_str(i).map(ToOwned::to_owned)
+    fn from_lua(s: &State, val: ValRef) -> Result<String> {
+        val.to_str()
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| Error::TypeNotMatch(val.type_of()))
     }
 }
 
 impl<'a> FromLua<'a> for &'a str {
     #[inline(always)]
-    fn from_index(s: &'a State, i: Index) -> Option<&'a str> {
-        s.to_safe_bytes(i)
-            .and_then(|b| core::str::from_utf8(b).ok())
+    fn from_lua(s: &'a State, val: ValRef<'a>) -> Result<&'a str> {
+        core::str::from_utf8(val.to_safe_bytes()?).lua_result()
     }
 }
 
 impl<'a> FromLua<'a> for &'a [u8] {
     #[inline(always)]
-    fn from_lua(lua: &'a State, val: ValRef<'a>) -> Option<&'a [u8]> {
-        val.to_safe_bytes().or_else(|| unsafe {
+    fn from_lua(lua: &'a State, val: ValRef<'a>) -> Result<&'a [u8]> {
+        val.to_safe_bytes().or_else(|_| unsafe {
             // Treat userdata without metatable as bytes
             let p: *mut core::ffi::c_void = lua.to_userdata(val.index);
             if p.is_null() || val.has_metatable() {
@@ -259,20 +250,21 @@ impl<'a> FromLua<'a> for &'a [u8] {
             } else {
                 Some(core::slice::from_raw_parts(p.cast::<u8>(), val.raw_len()))
             }
+            .ok_or(Error::TypeNotMatch(val.type_of()))
         })
     }
 }
 
 impl<'a, V: FromLua<'a> + 'static> FromLua<'a> for Vec<V> {
-    fn from_lua(s: &'a State, val: ValRef<'a>) -> Option<Self> {
-        let t = val.as_table()?;
+    fn from_lua(s: &'a State, val: ValRef<'a>) -> Result<Self> {
+        let t = val.as_table().ok_or("").lua_result()?;
 
         let mut result = Vec::new();
         for i in 1..=t.raw_len() {
-            result.push(t.raw_geti(i as i64).ok()?.cast::<V>()?);
+            result.push(t.raw_geti(i as i64)?.cast_into::<V>()?);
         }
 
-        Some(result)
+        Ok(result)
     }
 }
 
@@ -280,43 +272,46 @@ impl<'a, V: FromLua<'a> + 'static> FromLua<'a> for Vec<V> {
 impl<'a, K: FromLua<'a> + Eq + Hash + 'static, V: FromLua<'a> + 'static> FromLua<'a>
     for HashMap<K, V>
 {
-    fn from_lua(s: &'a State, val: ValRef<'a>) -> Option<Self> {
-        let t = val.as_table()?;
+    fn from_lua(s: &'a State, val: ValRef<'a>) -> Result<Self> {
+        let t = val.as_table().ok_or("").lua_result()?;
 
         let mut result = HashMap::new();
-        for (k, v) in t.iter().ok()? {
-            result.insert(k.cast::<K>()?, v.cast::<V>()?);
+        for (k, v) in t.iter()? {
+            result.insert(k.cast_into::<K>()?, v.cast_into::<V>()?);
         }
 
-        Some(result)
+        Ok(result)
     }
 }
 
 impl FromLua<'_> for f64 {
     #[inline(always)]
-    fn from_index(s: &State, i: Index) -> Option<f64> {
-        s.to_numberx(i)
+    fn from_lua(lua: &State, val: ValRef) -> Result<f64> {
+        lua.to_numberx(val.index)
+            .ok_or_else(|| Error::TypeNotMatch(val.type_of()))
     }
 }
 
 impl FromLua<'_> for f32 {
     #[inline(always)]
-    fn from_index(s: &State, i: Index) -> Option<f32> {
-        s.to_numberx(i).map(|r| r as f32)
+    fn from_lua(s: &State, val: ValRef) -> Result<f32> {
+        s.to_numberx(val.index)
+            .map(|r| r as f32)
+            .ok_or_else(|| Error::TypeNotMatch(val.type_of()))
     }
 }
 
 impl FromLua<'_> for bool {
     #[inline(always)]
-    fn from_index(s: &State, i: Index) -> Option<bool> {
-        Some(s.to_bool(i))
+    fn from_lua(lua: &State, val: ValRef) -> Result<bool> {
+        Some(lua.to_bool(val.index)).ok_or_else(|| Error::TypeNotMatch(val.type_of()))
     }
 }
 
 impl<'a, T: FromLua<'a>> FromLua<'a> for Option<T> {
     #[inline(always)]
-    fn from_index(s: &'a State, i: Index) -> Option<Option<T>> {
-        Some(T::from_index(s, i))
+    fn from_lua(lua: &'a State, val: ValRef<'a>) -> Result<Option<T>> {
+        Ok(T::from_lua(lua, val).ok())
     }
 }
 
@@ -328,23 +323,25 @@ macro_rules! impl_integer {
         }
 
         impl FromLua<'_> for $t {
-            fn from_index(s: &State, i: Index) -> Option<$t> {
-                if s.is_integer(i) {
-                    Some(s.to_integer(i) as $t)
-                } else if s.is_number(i) {
-                    Some(s.to_number(i) as $t)
+            fn from_lua(lua: &State, val: ValRef) -> Result<$t> {
+                let i = val.index;
+                if lua.is_integer(i) {
+                    Ok(lua.to_integer(i) as $t)
+                } else if lua.is_number(i) {
+                    Ok(lua.to_number(i) as $t)
                 } else {
-                    None
+                    Err(Error::TypeNotMatch(val.type_of()))
                 }
             }
         }
 
         impl FromLua<'_> for Strict<$t> {
-            fn from_index(s: &State, i: Index) -> Option<Strict<$t>> {
-                if s.is_integer(i) {
-                    Some(Self(s.to_integer(i) as $t))
+            fn from_lua(lua: &State, val: ValRef) -> Result<Strict<$t>> {
+                let i = val.index;
+                if lua.is_integer(i) {
+                    Ok(Self(lua.to_integer(i) as $t))
                 } else {
-                    None
+                    Err(Error::TypeNotMatch(val.type_of()))
                 }
             }
         }
@@ -359,12 +356,12 @@ pub trait ToLuaMulti: Sized {
         None
     }
 
-    fn push_multi(self, s: &State) -> Result<usize> {
+    fn push_multi(self, lua: &State) -> Result<usize> {
         Ok(0)
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deref, DerefMut, From, Into)]
 pub struct MultiRet<T>(pub Vec<T>);
 
 impl<T> Default for MultiRet<T> {
@@ -393,12 +390,19 @@ pub type MultiValRef<'a> = MultiRet<ValRef<'a>>;
 impl<'a, T: FromLua<'a> + 'a> FromLua<'a> for MultiRet<T> {
     const TYPE_NAME: &'static str = core::any::type_name::<Self>();
 
-    fn from_index(s: &'a State, i: Index) -> Option<Self> {
-        let mut result = Vec::new();
-        for i in i..=s.get_top() {
-            result.push(T::from_index(s, i)?);
+    fn from_lua(lua: &'a State, val: ValRef<'a>) -> Result<Self> {
+        let index = lua.from_index.get();
+        debug_assert_ne!(index, 0);
+        let mut top = lua.get_top();
+        if top == 1 && lua.is_none_or_nil(top) {
+            top = 0;
         }
-        Some(Self(result))
+        let count = (top + 1 - index).max(0);
+        let mut result = Vec::with_capacity(count as _);
+        for i in index..=top {
+            result.push(T::from_lua(lua, lua.val(i))?);
+        }
+        Ok(Self(result))
     }
 }
 
@@ -433,7 +437,7 @@ impl<'a, T: FromLua<'a>> FromLuaMulti<'a> for T {
 
     #[inline(always)]
     fn from_lua_multi(s: &'a State, begin: Index) -> Result<Self> {
-        T::check(s, begin)
+        check_from_lua(s, begin)
     }
 }
 
@@ -459,7 +463,7 @@ macro_rules! impl_method {
         > LuaMethod<'a, (), ($($x,)*), RET> for FN {
             #[inline(always)]
             fn call_method(&self, s: &'a State) -> Result<Pushed> {
-                s.pushed(self($($x::check(s, 1 + $i)?,)*))
+                s.pushed(self($(check_from_lua::<$x>(s, 1 + $i)?,)*))
             }
         }
 
@@ -472,7 +476,7 @@ macro_rules! impl_method {
         > LuaMethod<'a, (), (&'a State, $($x,)*), RET> for FN {
             #[inline(always)]
             fn call_method(&self, s: &'a State) -> Result<Pushed> {
-                s.pushed(self(s, $($x::check(s, 1 + $i)?,)*))
+                s.pushed(self(s, $(check_from_lua::<$x>(s, 1 + $i)?,)*))
             }
         }
 
@@ -489,8 +493,8 @@ macro_rules! impl_method {
         {
             #[inline(always)]
             fn call_method(&self, s: &'a State) -> Result<Pushed> {
-                let this = <THIS as FromLua>::check(s, 1)?;
-                s.pushed(self(this.deref(), $($x::check(s, 2 + $i)?,)*))
+                let this = check_from_lua::<THIS>(s, 1)?;
+                s.pushed(self(this.deref(), $(check_from_lua::<$x>(s, 2 + $i)?,)*))
             }
         }
 
@@ -507,8 +511,8 @@ macro_rules! impl_method {
         {
             #[inline(always)]
             fn call_method(&self, s: &'a State) -> Result<Pushed> {
-                let this = <<THIS::Trans as UserDataTrans<THIS>>::Read<'a> as FromLua>::check(s, 1)?;
-                s.pushed(self(this.deref().deref(), $($x::check(s, 2 + $i)?,)*))
+                let this = check_from_lua::<<THIS::Trans as UserDataTrans<THIS>>::Read<'a>>(s, 1)?;
+                s.pushed(self(this.deref().deref(), $(check_from_lua::<$x>(s, 2 + $i)?,)*))
             }
         }
 
@@ -525,8 +529,8 @@ macro_rules! impl_method {
         {
             #[inline(always)]
             fn call_method(&self, s: &'a State) -> Result<Pushed> {
-                let this = <THIS as FromLua>::check(s, 1)?;
-                s.pushed(self(s, this.deref(), $($x::check(s, 2 + $i)?,)*))
+                let this = check_from_lua::<THIS>(s, 1)?;
+                s.pushed(self(s, this.deref(), $(check_from_lua::<$x>(s, 2 + $i)?,)*))
             }
         }
 
@@ -543,8 +547,8 @@ macro_rules! impl_method {
         {
             #[inline(always)]
             fn call_method(&self, s: &'a State) -> Result<Pushed> {
-                let mut this = <THIS as FromLua>::check(s, 1)?;
-                s.pushed(self(this.deref_mut(), $($x::check(s, 2 + $i)?,)*))
+                let mut this = check_from_lua::<THIS>(s, 1)?;
+                s.pushed(self(this.deref_mut(), $(check_from_lua::<$x>(s, 2 + $i)?,)*))
             }
         }
 
@@ -561,8 +565,8 @@ macro_rules! impl_method {
         {
             #[inline(always)]
             fn call_method(&self, s: &'a State) -> Result<Pushed> {
-                let mut this = <<THIS::Trans as UserDataTrans<THIS>>::Read<'a> as FromLua>::check(s, 1)?;
-                s.pushed(self(this.deref_mut().deref_mut(), $($x::check(s, 2 + $i)?,)*))
+                let mut this = check_from_lua::<<THIS::Trans as UserDataTrans<THIS>>::Read<'a>>(s, 1)?;
+                s.pushed(self(this.deref_mut().deref_mut(), $(check_from_lua::<$x>(s, 2 + $i)?,)*))
             }
         }
 
@@ -579,8 +583,8 @@ macro_rules! impl_method {
         {
             #[inline(always)]
             fn call_method(&self, s: &'a State) -> Result<Pushed> {
-                let mut this = <THIS as FromLua>::check(s, 1)?;
-                s.pushed(self(s, this.deref_mut(), $($x::check(s, 2 + $i)?,)*))
+                let mut this = check_from_lua::<THIS>(s, 1)?;
+                s.pushed(self(s, this.deref_mut(), $(check_from_lua::<$x>(s, 2 + $i)?,)*))
             }
         }
     );
@@ -623,7 +627,7 @@ macro_rules! impl_tuple {
 
             #[inline(always)]
             fn from_lua_multi(s: &'a State, begin: Index) -> Result<Self> {
-                Ok(( $($x::check(s, begin + $i)?,)* ))
+                Ok(( $(check_from_lua::<$x>(s, begin + $i)?,)* ))
             }
         }
 
@@ -632,7 +636,7 @@ macro_rules! impl_tuple {
 
             #[inline(always)]
             fn from_lua_multi(s: &'a State, begin: Index) -> Result<Self> {
-                Ok((s, $($x::check(s, begin + $i)?,)* ))
+                Ok((s, $(check_from_lua::<$x>(s, begin + $i)?,)* ))
             }
         }
 
@@ -674,17 +678,12 @@ macro_rules! impl_closure {
             &'l self,
             f: FN,
         ) -> Result<Function<'l>> {
-            self.bind_closure(move |s: &'l State| Result::Ok(f(s, $($x::check(s, $i + 1)?,)*)), 0)
+            self.bind_closure(move |s: &'l State| Result::Ok(f(s, $(check_from_lua::<$x>(s, $i + 1)?,)*)), 0)
         }
     );
 }
 
 impl State {
-    #[inline(always)]
-    pub(crate) fn arg<'a, T: FromLua<'a>>(&'a self, index: Index) -> Option<T> {
-        T::from_index(self, index)
-    }
-
     #[inline(always)]
     pub(crate) fn push_multi<'a, T: ToLuaMulti>(&'a self, t: T) -> Result<usize> {
         t.push_multi(self)
@@ -801,7 +800,12 @@ impl State {
         self.top_val().try_into()
     }
 
-    fn push_binding(&self, cfunc: CFunction, gc: CFunction, upvals: usize) -> Result<()> {
+    pub(crate) fn push_binding(
+        &self,
+        cfunc: CFunction,
+        gc: CFunction,
+        upvals: usize,
+    ) -> Result<()> {
         let mt = self.new_table_with_size(0, 1)?;
         mt.set("__gc", gc)?;
         mt.0.ensure_top();

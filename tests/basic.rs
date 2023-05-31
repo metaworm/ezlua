@@ -146,7 +146,7 @@ fn call_lua() {
     println!("top: {}", s.stack_top());
     for i in 1..10 {
         let t = g.geti(i).unwrap();
-        assert_eq!(t.get("key").unwrap().cast::<i32>(), Some(i));
+        assert_eq!(t.get("key").unwrap().cast::<i32>().unwrap(), i);
     }
     println!("top: {}", s.stack_top());
 
@@ -201,21 +201,29 @@ fn push_check() {
     let t2 = result.get("t2").unwrap();
     assert!(t2.type_of() == LuaType::Table);
 
-    assert_eq!(t2.get("field").unwrap().cast::<i32>(), Some(1234));
+    assert_eq!(t2.get("field").unwrap().cast::<i32>().unwrap(), 1234);
 }
 
 #[test]
 fn stack_balance() {
-    let s = Lua::new();
+    let lua = Lua::new();
 
+    let mut stack_top = None;
     // pcall recycle multi value
-    let foo = s.load("return ...", None).unwrap();
+    let foo = lua.load("return ...", None).unwrap();
     for i in 0..20 {
-        println!("top{i} {}", s.stack_top());
+        println!("top{i} {}", lua.stack_top());
         let (_, _, s3) = foo
             .pcall::<_, (LuaValue, LuaValue, ValRef)>((1, 2, "3"))
             .unwrap();
+        assert!(s3.index() <= lua.stack_top());
         assert_eq!(s3.to_str().unwrap(), "3");
+        if stack_top.is_none() {
+            println!("after first call: {}", lua.stack_top());
+            stack_top.replace(lua.stack_top());
+        } else {
+            assert_eq!(lua.stack_top(), stack_top.unwrap());
+        }
     }
 }
 
@@ -356,21 +364,23 @@ fn safe_reference() {
 
 #[test]
 fn error_balance() {
-    let s = Lua::with_open_libs();
-    let _occupation = (0..20).map(|_| s.new_val(()).unwrap()).collect::<Vec<_>>();
+    let lua = Lua::with_open_libs();
+    let _occupation = (0..20)
+        .map(|_| lua.new_val(()).unwrap())
+        .collect::<Vec<_>>();
 
-    let top = s.stack_top();
+    let top = lua.stack_top();
     for _ in 0..10 {
-        s.load("...", None).unwrap_err();
-        assert_eq!(s.stack_top(), top);
+        lua.load("...", None).unwrap_err();
+        assert_eq!(lua.stack_top(), top);
     }
 
-    let foo = s.load("error('error')", None).unwrap();
-    let top = s.stack_top();
+    let foo = lua.load("error('error')", None).unwrap();
+    let top = lua.stack_top();
     for _ in 0..10 {
         foo.pcall_void((1, 2, 3)).unwrap_err();
         // println!("stack top: {}", s.stack_top());
-        assert_eq!(s.stack_top(), top);
+        assert_eq!(lua.stack_top(), top);
     }
 }
 
@@ -380,9 +390,7 @@ fn convert() {
     let _occupation = (0..20).map(|_| s.new_val(()).unwrap()).collect::<Vec<_>>();
 
     s.global()
-        .set_closure("test", |args: MultiRet<i32>| {
-            args.0.get(0).copied().ok_or(())
-        })
+        .set_closure("test", |args: MultiRet<i32>| args.0.get(0).copied())
         .unwrap()
         .set_closure("readfile", |file: &str| NilError(std::fs::read(file)))
         .unwrap()

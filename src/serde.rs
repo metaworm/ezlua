@@ -121,26 +121,20 @@ impl<T: Serialize> ToLua for SerdeValue<T> {
 
 impl<'a, T: Deserialize<'a> + 'a> FromLua<'a> for SerdeValue<T> {
     #[inline(always)]
-    fn from_index(s: &'a State, i: i32) -> Option<SerdeValue<T>> {
-        if s.safe_index(i) {
-            unsafe {
-                let val = s.val(i);
-                // Safety:
-                let val: &'a ValRef = core::mem::transmute(&val);
-                T::deserialize(val).ok().map(SerdeValue)
-            }
-        } else {
-            #[cfg(feature = "log")]
-            log::warn!("try deserialize a non-argument value");
-            None
+    fn from_lua(lua: &'a State, val: ValRef<'a>) -> LuaResult<SerdeValue<T>> {
+        val.check_safe_index()?;
+        unsafe {
+            // Safety: check_safe_index
+            let val: &'a ValRef = core::mem::transmute(&val);
+            T::deserialize(val).map(SerdeValue).lua_result()
         }
     }
 }
 
 impl<'a, T: DeserializeOwned + 'a> FromLua<'a> for SerdeOwnedValue<T> {
     #[inline(always)]
-    fn from_index(s: &'a State, i: i32) -> Option<SerdeOwnedValue<T>> {
-        T::deserialize(&s.val(i)).ok().map(SerdeOwnedValue)
+    fn from_lua(lua: &'a State, val: ValRef<'a>) -> LuaResult<SerdeOwnedValue<T>> {
+        T::deserialize(&val).map(SerdeOwnedValue).lua_result()
     }
 }
 
@@ -545,7 +539,7 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
     where
         V: Visitor<'de>,
     {
-        visitor.visit_bool(self.cast().ok_or(DesErr::ExpectedBoolean)?)
+        visitor.visit_bool(self.cast().map_err(|_| DesErr::ExpectedBoolean)?)
     }
 
     /// Hint that the `Deserialize` type is expecting an `i8` value.
@@ -553,7 +547,7 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
     where
         V: Visitor<'de>,
     {
-        visitor.visit_i8(self.cast().ok_or(DesErr::ExpectedInteger)?)
+        visitor.visit_i8(self.cast().map_err(|_| DesErr::ExpectedInteger)?)
     }
 
     /// Hint that the `Deserialize` type is expecting an `i16` value.
@@ -561,7 +555,7 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
     where
         V: Visitor<'de>,
     {
-        visitor.visit_i16(self.cast().ok_or(DesErr::ExpectedInteger)?)
+        visitor.visit_i16(self.cast().map_err(|_| DesErr::ExpectedInteger)?)
     }
 
     /// Hint that the `Deserialize` type is expecting an `i32` value.
@@ -569,7 +563,7 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
     where
         V: Visitor<'de>,
     {
-        visitor.visit_i32(self.cast().ok_or(DesErr::ExpectedInteger)?)
+        visitor.visit_i32(self.cast().map_err(|_| DesErr::ExpectedInteger)?)
     }
 
     /// Hint that the `Deserialize` type is expecting an `i64` value.
@@ -577,7 +571,7 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
     where
         V: Visitor<'de>,
     {
-        visitor.visit_i64(self.cast().ok_or(DesErr::ExpectedInteger)?)
+        visitor.visit_i64(self.cast().map_err(|_| DesErr::ExpectedInteger)?)
     }
 
     /// Hint that the `Deserialize` type is expecting a `u8` value.
@@ -585,7 +579,7 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
     where
         V: Visitor<'de>,
     {
-        visitor.visit_u8(self.cast().ok_or(DesErr::ExpectedInteger)?)
+        visitor.visit_u8(self.cast().map_err(|_| DesErr::ExpectedInteger)?)
     }
 
     /// Hint that the `Deserialize` type is expecting a `u16` value.
@@ -593,7 +587,7 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
     where
         V: Visitor<'de>,
     {
-        visitor.visit_u16(self.cast().ok_or(DesErr::ExpectedInteger)?)
+        visitor.visit_u16(self.cast().map_err(|_| DesErr::ExpectedInteger)?)
     }
 
     /// Hint that the `Deserialize` type is expecting a `u32` value.
@@ -601,7 +595,7 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
     where
         V: Visitor<'de>,
     {
-        visitor.visit_u32(self.cast().ok_or(DesErr::ExpectedInteger)?)
+        visitor.visit_u32(self.cast().map_err(|_| DesErr::ExpectedInteger)?)
     }
 
     /// Hint that the `Deserialize` type is expecting a `u64` value.
@@ -609,7 +603,7 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
     where
         V: Visitor<'de>,
     {
-        visitor.visit_u64(self.cast().ok_or(DesErr::ExpectedInteger)?)
+        visitor.visit_u64(self.cast().map_err(|_| DesErr::ExpectedInteger)?)
     }
 
     /// Hint that the `Deserialize` type is expecting a `f32` value.
@@ -617,7 +611,7 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
     where
         V: Visitor<'de>,
     {
-        visitor.visit_f32(self.cast().ok_or(DesErr::ExpectedInteger)?)
+        visitor.visit_f32(self.cast().map_err(|_| DesErr::ExpectedInteger)?)
     }
 
     /// Hint that the `Deserialize` type is expecting a `f64` value.
@@ -625,7 +619,7 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
     where
         V: Visitor<'de>,
     {
-        visitor.visit_f64(self.cast().ok_or(DesErr::ExpectedInteger)?)
+        visitor.visit_f64(self.cast().map_err(|_| DesErr::ExpectedInteger)?)
     }
 
     /// Hint that the `Deserialize` type is expecting a `char` value.

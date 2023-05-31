@@ -22,6 +22,7 @@ pub struct ValRef<'a> {
 }
 
 impl Clone for ValRef<'_> {
+    #[inline(always)]
     fn clone(&self) -> Self {
         self.state.val(self.index)
     }
@@ -86,15 +87,24 @@ impl<'a> ValRef<'a> {
         self.state.is_function(self.index)
     }
 
-    #[inline]
-    pub fn to_safe_bytes(&self) -> Option<&'a [u8]> {
-        self.state.to_safe_bytes(self.index)
+    pub fn check_safe_index(&self) -> Result<()> {
+        if self.state.safe_index(self.index) {
+            Ok(())
+        } else {
+            Err("ref is not safe").lua_result()
+        }
+    }
+
+    pub fn to_safe_bytes(&self) -> Result<&'a [u8]> {
+        self.check_type(Type::String)?;
+        self.state
+            .to_safe_bytes(self.index)
+            .ok_or_else(|| Error::Convert("safe bytes".into()))
     }
 
     #[inline]
-    pub fn to_safe_str(&self) -> Option<&'a str> {
-        self.to_safe_bytes()
-            .and_then(|b| core::str::from_utf8(b).ok())
+    pub fn to_safe_str(&self) -> Result<&'a str> {
+        core::str::from_utf8(self.to_safe_bytes()?).lua_result()
     }
 
     #[inline]
@@ -140,13 +150,13 @@ impl<'a> ValRef<'a> {
     }
 
     #[inline]
-    pub fn cast<'v, T: FromLua<'a> + 'v>(&'v self) -> Option<T> {
-        self.state.arg(self.index)
+    pub fn cast<'v, T: FromLua<'a> + 'v>(&'v self) -> Result<T> {
+        self.clone().cast_into()
     }
 
-    #[inline]
-    pub fn check_cast<T: FromLua<'a>>(&self) -> Result<T> {
-        FromLua::check(self.state, self.index)
+    #[inline(always)]
+    pub fn cast_into<T: FromLua<'a>>(self) -> Result<T> {
+        FromLua::from_lua(self.state, self)
     }
 
     pub(crate) fn getf(&self, k: &CStr) -> ValRef {
@@ -250,7 +260,7 @@ impl<'a> ValRef<'a> {
 
     #[inline]
     pub fn getopt<K: ToLua, V: FromLua<'a>>(&self, k: K) -> Result<Option<V>> {
-        Ok(self.get(k)?.cast())
+        Ok(self.get(k)?.cast().ok())
     }
 
     /// Call this value as a function
@@ -506,10 +516,8 @@ macro_rules! impl_wrap {
         }
 
         impl<'a> FromLua<'a> for $t {
-            #[inline(always)]
-            fn from_index(s: &'a State, i: Index) -> Option<Self> {
-                let val = s.val(i);
-                (val.type_of() == $lt).then_some(Self(val))
+            fn from_lua(_: &'a State, val: ValRef<'a>) -> Result<Self> {
+                val.check_type($lt).map(|_| Self(val))
             }
         }
 
@@ -732,8 +740,7 @@ impl<'a> LuaUserData<'a> {
         }
     }
 
-    #[inline(always)]
-    pub fn userdata_ref<U: UserData>(&self) -> Option<&'a U::Trans> {
+    pub fn userdata_ref<U: UserData>(&self) -> Option<&U::Trans> {
         unsafe {
             self.state
                 .test_userdata_meta::<U::Trans>(self.index, crate::userdata::init_wrapper::<U>)
@@ -741,7 +748,6 @@ impl<'a> LuaUserData<'a> {
         }
     }
 
-    #[inline(always)]
     pub unsafe fn userdata_ref_mut<U: UserData>(&self) -> Option<&mut U::Trans> {
         self.state
             .test_userdata_meta::<U::Trans>(self.index, crate::userdata::init_wrapper::<U>)

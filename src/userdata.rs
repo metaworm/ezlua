@@ -11,7 +11,7 @@ use core::{
 
 use crate::{
     convert::*,
-    error::{Error, Result},
+    error::{Error, Result, ToLuaResult},
     ffi::{
         luaL_checktype, lua_State, lua_pushinteger, lua_rawlen, lua_upvalueindex, CFunction,
         LUA_REGISTRYINDEX, LUA_TUSERDATA,
@@ -77,31 +77,46 @@ impl<T> UserDataTrans<T> for RefCell<T> {
 }
 
 impl<'a, T: UserData<Trans = RefCell<T>>> FromLua<'a> for &'a RefCell<T> {
-    fn from_lua(s: &'a State, val: ValRef<'a>) -> Option<Self> {
-        LuaUserData::try_from(val).ok()?.userdata_ref::<T>()
+    fn from_lua(s: &'a State, val: ValRef<'a>) -> Result<Self> {
+        let u = LuaUserData::try_from(val)?;
+        u.check_safe_index()?;
+        u.userdata_ref::<T>()
+            .ok_or("userdata not match")
+            .lua_result()
+            // Safety: check_safe_index
+            .map(|x| unsafe { core::mem::transmute(x) })
     }
 }
 
 impl<'a, T: UserData<Trans = RefCell<T>>> FromLua<'a> for Ref<'a, T> {
-    fn from_lua(s: &'a State, val: ValRef<'a>) -> Option<Self> {
-        LuaUserData::try_from(val)
-            .ok()?
-            .userdata_ref::<T>()?
+    fn from_lua(s: &'a State, val: ValRef<'a>) -> Result<Self> {
+        let u = LuaUserData::try_from(val)?;
+        u.check_safe_index()?;
+        u.userdata_ref::<T>()
+            .ok_or("userdata not match")
+            .lua_result()?
             .try_borrow()
-            .ok()
+            .lua_result()
+            // Safety: check_safe_index
+            .map(|x| unsafe { core::mem::transmute(x) })
     }
 }
 
 impl<'a, T: UserData<Trans = RefCell<T>>> FromLua<'a> for RefMut<'a, T> {
-    fn from_lua(s: &'a State, val: ValRef<'a>) -> Option<Self> {
-        LuaUserData::try_from(val)
-            .ok()?
-            .userdata_ref::<T>()?
+    fn from_lua(s: &'a State, val: ValRef<'a>) -> Result<Self> {
+        let u = LuaUserData::try_from(val)?;
+        u.check_safe_index()?;
+        u.userdata_ref::<T>()
+            .ok_or("userdata not match")
+            .lua_result()?
             .try_borrow_mut()
-            .ok()
+            .lua_result()
+            // Safety: check_safe_index
+            .map(|x| unsafe { core::mem::transmute(x) })
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct MaybePtrRef<'a, T>(pub &'a T);
 
 impl<'a, T> Deref for MaybePtrRef<'a, T> {
@@ -137,15 +152,14 @@ impl<T> UserDataTrans<T> for MaybePointer<T> {
 impl<'a, T: UserData<Trans = MaybePointer<T>>> FromLua<'a> for MaybePtrRef<'a, T> {
     const TYPE_NAME: &'static str = T::TYPE_NAME;
 
-    #[inline(always)]
-    fn from_index(s: &'a State, i: Index) -> Option<Self> {
-        unsafe {
-            Some(Self(
-                s.test_userdata_meta::<MaybePointer<T>>(i, init_wrapper::<T>)?
-                    .0
-                    .as_ref()?,
-            ))
-        }
+    fn from_lua(lua: &'a State, val: ValRef<'a>) -> Result<Self> {
+        let u = LuaUserData::try_from(val)?;
+        u.check_safe_index()?;
+        u.userdata_ref::<T>()
+            .ok_or("userdata not match")
+            .lua_result()
+            // Safety: check_safe_index
+            .map(|x| MaybePtrRef(unsafe { core::mem::transmute(x.0.as_ref()) }))
     }
 }
 
@@ -372,7 +386,7 @@ pub trait UserData: Sized {
 
     unsafe extern "C" fn __gc(l: *mut lua_State) -> c_int {
         let s = State::from_raw_state(l);
-        let u = s.arg::<LuaUserData>(1);
+        let u = LuaUserData::try_from(s.val(1)).ok();
         if let Some(p) = u.as_ref().and_then(|u| u.userdata_ref_mut::<Self>()) {
             p.when_drop();
         }
@@ -381,7 +395,7 @@ pub trait UserData: Sized {
 
     unsafe extern "C" fn __close(l: *mut lua_State) -> c_int {
         let s = State::from_raw_state(l);
-        let u = s.arg::<LuaUserData>(1);
+        let u = LuaUserData::try_from(s.val(1)).ok();
         if let Some(p) = u.as_ref().and_then(|u| u.userdata_ref_mut::<Self>()) {
             p.when_drop();
         }
@@ -448,9 +462,14 @@ impl<T: UserData<Trans = MaybePointer<T>>> ToLua for MaybePtrRef<'_, T> {
 impl<'a, T: UserData<Trans = T>> FromLua<'a> for &'a T {
     const TYPE_NAME: &'static str = T::TYPE_NAME;
 
-    #[inline(always)]
-    fn from_index(s: &'a State, i: Index) -> Option<&'a T> {
-        unsafe { Some(s.test_userdata_meta::<T>(i, init_wrapper::<T>)?) }
+    fn from_lua(lua: &'a State, val: ValRef<'a>) -> Result<&'a T> {
+        let u = LuaUserData::try_from(val)?;
+        u.check_safe_index()?;
+        u.userdata_ref::<T>()
+            .ok_or("userdata not match")
+            .lua_result()
+            // Safety: check_safe_index
+            .map(|x| unsafe { core::mem::transmute(x) })
     }
 }
 
@@ -631,7 +650,7 @@ impl<'a, U: 'a, R: 'a, W> MethodRegistry<'a, U, R, W> {
             k,
             self.state.bind_closure(
                 |lua| unsafe {
-                    let this = R::check(lua, 1)?;
+                    let this = check_from_lua::<R>(lua, 1)?;
                     lua.pushed(field(lua, core::mem::transmute(this.deref())))
                 },
                 0,
@@ -652,11 +671,11 @@ impl<'a, U: 'a, R: 'a, W> MethodRegistry<'a, U, R, W> {
             k,
             self.state.bind_closure(
                 |lua| unsafe {
-                    let mut this = W::check(lua, 1)?;
+                    let mut this = check_from_lua::<W>(lua, 1)?;
                     lua.pushed(field(
                         lua,
                         core::mem::transmute(this.deref_mut()),
-                        A::check(lua, 2)?,
+                        check_from_lua(lua, 2)?,
                     ))
                 },
                 0,
@@ -677,7 +696,7 @@ impl<'a, U: 'a, R: 'a, W> MethodRegistry<'a, U, R, W> {
             k,
             self.state.bind_closure(
                 |lua| unsafe {
-                    let this = R::check(lua, 1)?;
+                    let this = check_from_lua::<R>(lua, 1)?;
                     lua.pushed(method(
                         lua,
                         core::mem::transmute(this.deref()),
@@ -702,7 +721,7 @@ impl<'a, U: 'a, R: 'a, W> MethodRegistry<'a, U, R, W> {
             k,
             self.state.bind_closure(
                 |lua| unsafe {
-                    let mut this = W::check(lua, 1)?;
+                    let mut this = check_from_lua::<W>(lua, 1)?;
                     lua.pushed(method(
                         lua,
                         core::mem::transmute(this.deref_mut()),

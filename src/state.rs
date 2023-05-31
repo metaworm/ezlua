@@ -9,12 +9,13 @@ use crate::{
 };
 
 use alloc::{collections::BinaryHeap as Slots, format};
-use core::{cell::RefCell, ffi::c_int, str};
+use core::{cell::Cell, cell::RefCell, ffi::c_int, str};
 
 /// Safe wrapper for operation to lua_State
 #[derive(Debug)]
 pub struct State {
     pub base: Index,
+    pub from_index: Cell<Index>,
     pub(crate) state: *mut lua_State,
     pub(crate) free: RefCell<Slots<i32>>,
 }
@@ -132,6 +133,7 @@ pub mod unsafe_impl {
             Self {
                 base,
                 state,
+                from_index: 0.into(),
                 free: Default::default(),
             }
         }
@@ -483,13 +485,14 @@ pub mod unsafe_impl {
 
         fn check_multi_balance<'a>(&'a self, guard: StackGuard<'a>, top: i32) {
             if self.get_top() > top {
-                // reuse slots between old_top and top
+                // if the top increased, it indicates that a new slot higher than the result_base has been allocated to valref,
+                // so recycle the slots between between old_top and top
                 for i in guard.top() + 1..=top {
                     self.give_back_slot(i);
                 }
                 core::mem::forget(guard);
             } else {
-                // there are no new valref
+                // there are no new higher slot allocated, balance the stack
                 drop(guard);
             }
         }
