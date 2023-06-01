@@ -404,7 +404,6 @@ impl<'a> ValRef<'a> {
     }
 
     /// [+(0|1), 0, -]
-    #[inline(always)]
     pub(crate) fn ensure_top(self) {
         if self.index < self.state.get_top() {
             self.state.push_value(self.index);
