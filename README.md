@@ -1,6 +1,7 @@
 
 [![crates.io](https://img.shields.io/crates/v/ezlua.svg)](https://crates.io/crates/ezlua)
 [![docs.rs](https://docs.rs/ezlua/badge.svg)](https://docs.rs/ezlua)
+[![Build Status]](https://github.com/metaworm/ezlua/actions)
 
 [ChangeLog] | [FAQ] | [Known issues]
 
