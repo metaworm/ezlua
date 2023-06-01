@@ -5,6 +5,7 @@
 
 [ChangeLog] | [FAQ] | [Known issues]
 
+[Build Status]: https://github.com/metaworm/ezlua/workflows/CI/badge.svg
 [ChangeLog]: CHANGELOG.md
 [FAQ]: FAQ.md
 [Known issues]: https://github.com/metaworm/ezlua/labels/known%20issues
@@ -32,6 +33,16 @@ Ergonomic, efficient and Zero-cost rust bindings to Lua5.4
 See [builtin bindings](https://github.com/metaworm/ezlua/tree/master/src/binding) [tests](https://github.com/metaworm/ezlua/tree/master/tests)
 
 ## Usage
+
+### Feature flags
+
+* `async`: enable async/await support (any executor can be used, eg. [tokio] or [async-std])
+* `serde`: add serialization and deserialization support to `ezlua` types using [serde] framework
+* `vendored`: build static Lua library from sources during `ezlua` compilation using [lua-src] crates
+* `thread` enable the [multiple thread support](#multiple-thread-usage)
+* `std`: enable the builtin bindings for rust std functions and types
+* `json`: enable the builtin bindings for [serde_json] crate
+* `regex`: enable the builtin bindings for [regex] crate
 
 ### Basic
 
@@ -131,12 +142,16 @@ struct Config {
     // ...
 }
 
+// You can use impl_tolua_as_serde macro to simply this after version v0.3.1
+// ezlua::impl_tolua_as_serde!(Config);
 impl ToLua for Config {
     fn to_lua<'a>(self, lua: &'a LuaState) -> LuaResult<ValRef<'a>> {
         SerdeValue(self).to_lua(lua)
     }
 }
 
+// You can use impl_fromlua_as_serde macro to simply this after version v0.3.1
+// ezlua::impl_fromlua_as_serde!(Config);
 impl FromLua<'_> for Config {
     fn from_lua(lua: &LuaState, val: ValRef) -> Option<Self> {
         SerdeValue::<Self>::from_lua(lua, val).map(|s| s.0)
@@ -285,6 +300,33 @@ std::thread::spawn(move || {
 })
 .join()
 .unwrap();
+```
+
+### Module mode
+
+In a module mode `ezlua` allows to create a compiled Lua module that can be loaded from Lua code using [`require`](https://www.lua.org/manual/5.4/manual.html#pdf-require).
+
+First, disable the default vendored feature, and keep std feature only, and config your crate as a cdylib in `Cargo.toml` :
+``` toml
+[dependencies]
+ezlua = {version = '0.3', default-features = false, features = ['std']}
+
+[lib]
+crate-type = ['cdylib']
+```
+
+Then, export your `luaopen_` function by using `ezlua::lua_module!` macro, where the first argument is `luaopen_<Your module name>`
+``` rust
+use ezlua::prelude::*;
+
+ezlua::lua_module!(luaopen_ezluamod, |lua| {
+    let module = lua.new_table()?;
+
+    module.set("_VERSION", "0.1.0")?;
+    // ... else module functions
+
+    return Ok(module);
+});
 ```
 
 ## Internal design

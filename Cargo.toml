@@ -1,6 +1,6 @@
 [package]
 name = "ezlua"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 license = "MIT"
 authors = ["metaworm <metaworm@outlook.com>"]
@@ -14,7 +14,7 @@ categories = ["api-bindings", "no-std"]
 [features]
 default = ['std', 'vendored', 'log', 'serde']
 vendored = ['lua-src']
-thread = ['std', 'parking_lot']
+thread = ['std', 'parking_lot', 'vendored']
 json = ['serde_json', 'serde']
 std = ['bitflags']
 unsafe_send_sync = []

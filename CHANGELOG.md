@@ -4,6 +4,7 @@
 - Added `impl_tolua_as_serde!`/`impl_fromlua_as_serde!` macro to `impl ToLua`/`impl FromLua` for serializable types easily
 - Added `impl_toluamulti!` macro to `impl ToLuaMulti` for types which can convert to another type implemented ToLuaMulti easily
 - Removed dependence to the unstable features fn_traits/tuple_trait
+- Make `serde` as an optional feature
 
 ## v0.3.0
 
