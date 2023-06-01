@@ -4,9 +4,6 @@
     thread_id_value,
     macro_metavar_expr,
     const_type_name,
-    unboxed_closures,
-    fn_traits,
-    tuple_trait,
     file_set_times,
     associated_type_defaults
 )]

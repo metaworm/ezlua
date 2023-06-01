@@ -161,13 +161,6 @@ impl ToLua for CFunction {
 }
 
 impl<T: ToLua> ToLua for Option<T> {
-    const __PUSH: Option<fn(Self, &State) -> Result<()>> =
-        Some(|this, s| match (T::__PUSH, this) {
-            (Some(push), Some(this)) => push(this, s),
-            (_, None) => Ok(s.push_nil()),
-            (None, Some(this)) => Ok(this.to_lua(s)?.ensure_top()),
-        });
-
     fn to_lua<'a>(self, s: &'a State) -> Result<ValRef<'a>> {
         match self {
             Some(t) => t.to_lua(s),
@@ -669,7 +662,6 @@ impl_tuple!((A, 0)(B, 1)(C, 2)(D, 3)(E, 4)(F, 5)(G, 6)(H, 7)(I, 8));
 impl_tuple!((A, 0)(B, 1)(C, 2)(D, 3)(E, 4)(F, 5)(G, 6)(H, 7)(I, 8)(J, 9));
 impl_tuple!((A, 0)(B, 1)(C, 2)(D, 3)(E, 4)(F, 5)(G, 6)(H, 7)(I, 8)(J, 9)(K, 10));
 impl_tuple!((A, 0)(B, 1)(C, 2)(D, 3)(E, 4)(F, 5)(G, 6)(H, 7)(I, 8)(J, 9)(K, 10)(L, 11));
-impl_tuple!((A, 0)(B, 1)(C, 2)(D, 3)(E, 4)(F, 5)(G, 6)(H, 7)(I, 8)(J, 9)(K, 10)(L, 11)(M, 12));
 
 macro_rules! impl_closure {
     ($name:ident ($($x:ident:$i:literal)*)) => (

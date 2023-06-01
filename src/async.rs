@@ -9,17 +9,11 @@ use crate::{
 };
 
 use alloc::boxed::Box;
-use core::{ffi::c_int, future::Future, marker::Tuple};
+use core::{ffi::c_int, future::Future};
 
-struct TaskWrapper<'a>(
-    Option<
-        Box<
-            dyn FnOnce(&'a State, i32) -> Box<dyn Future<Output = Result<usize>> + Send + 'a>
-                + Send
-                + 'a,
-        >,
-    >,
-);
+pub type TaskOutput<'a> = Box<dyn Future<Output = Result<usize>> + Send + 'a>;
+
+struct TaskWrapper<'a>(Option<Box<dyn FnOnce(&'a State, i32) -> TaskOutput<'a> + Send + 'a>>);
 
 impl Function<'_> {
     #[inline(always)]
@@ -60,10 +54,9 @@ impl Table<'_> {
     pub fn set_async_closure<
         'l,
         K: ToLua,
-        A: FromLuaMulti<'l> + Tuple,
-        R: ToLuaMulti + 'l,
-        FUT: Future<Output = R> + Send + 'l,
-        F: Fn<A, Output = FUT> + Sync + Send + 'static,
+        A: 'l,
+        R: 'l,
+        F: LuaAsyncMethod<'l, (), A, R> + 'static,
     >(
         &'l self,
         key: K,
@@ -105,23 +98,12 @@ impl Coroutine {
 
 impl State {
     #[inline(always)]
-    pub(crate) fn yield_task<
-        'a,
-        RET: ToLuaMulti + 'a,
-        FUT: Future<Output = RET> + Send + 'a,
-        F: FnOnce(&'a State, i32) -> crate::error::Result<FUT> + Send + 'a,
-    >(
+    pub(crate) fn yield_task<'a, F: FnOnce(&'a State, i32) -> TaskOutput<'a> + Send + 'a>(
         self,
         callback: F,
     ) -> ! {
-        self.push_userdatauv(
-            TaskWrapper(Some(Box::new(|s: &'a State, base| {
-                let fut = callback(s, base);
-                Box::new(async move { fut?.await.push_multi(s) })
-            }))),
-            0,
-        )
-        .expect("push task wrapper");
+        self.push_userdatauv(TaskWrapper(Some(Box::new(callback))), 0)
+            .expect("push task wrapper");
 
         unsafe extern "C" fn continue_func(
             l: *mut lua_State,
@@ -179,19 +161,66 @@ impl State {
         panic!("co_yieldk called in non-coroutine context; check is_yieldable first")
     }
 
-    /// Bind a rust async function(closure) with flexible argument types
+    /// Bind a rust async function(closure)
     #[inline(always)]
-    pub fn async_closure<
+    pub fn async_function<
         'l,
-        A: FromLuaMulti<'l> + Tuple,
+        A: FromLuaMulti<'l> + 'l,
         R: ToLuaMulti + 'l,
         FUT: Future<Output = R> + Send + 'l,
-        F: Fn<A, Output = FUT> + Sync + Send + 'static,
+        F: Fn(&'l State, A) -> FUT + Sync + Send + 'static,
     >(
         &self,
         fun: F,
     ) -> Result<Function> {
-        self.bind_async_closure(move |s, base| Result::Ok(fun.call(A::from_lua_multi(s, base)?)))
+        self.bind_async_closure(move |lua, base| {
+            A::from_lua_multi(lua, base).map(|args| fun(lua, args))
+        })
+    }
+
+    /// Bind a rust async function(closure) with flexible argument types
+    #[inline(always)]
+    pub fn async_closure<'l, A: 'l, R: 'l, F: LuaAsyncMethod<'l, (), A, R> + 'static>(
+        &self,
+        fun: F,
+    ) -> Result<Function> {
+        self.bind_async(move |lua, base| fun.call_method(lua, base))
+    }
+
+    #[doc(hidden)]
+    #[inline(always)]
+    pub(crate) fn bind_async<'l, F: Fn(&'l State, i32) -> TaskOutput<'l> + Sync + Send + 'l>(
+        &self,
+        f: F,
+    ) -> Result<Function> {
+        unsafe extern "C" fn async_closure_wrapper<
+            'l,
+            F: Fn(&'l State, i32) -> TaskOutput<'l> + Sync + Send + 'l,
+        >(
+            l: *mut lua_State,
+        ) -> i32 {
+            let state = State::from_raw_state(l);
+            #[allow(unused_assignments)]
+            let mut pfn = core::mem::transmute(1usize);
+            let callback: &'l F = if core::mem::size_of::<F>() == 0 {
+                core::mem::transmute(pfn)
+            } else {
+                pfn = state.to_userdata(ffi::lua_upvalueindex(1));
+                core::mem::transmute(pfn)
+            };
+
+            state.yield_task(callback)
+        }
+
+        if core::mem::size_of::<F>() == 0 {
+            self.check_stack(1)?;
+            self.push_cclosure(Some(async_closure_wrapper::<F>), 0);
+        } else {
+            self.check_stack(2)?;
+            self.push_userdatauv(f, 0)?;
+            self.push_binding(async_closure_wrapper::<F>, __gc::<F>, 0)?;
+        }
+        self.top_val().try_into()
     }
 
     #[doc(hidden)]
@@ -200,7 +229,7 @@ impl State {
         'l,
         R: ToLuaMulti + 'l,
         FUT: Future<Output = R> + Send + 'l,
-        F: Fn(&'l State, i32) -> Result<FUT> + Sync + Send + 'l,
+        F: Fn(&'l State, i32) -> Result<FUT> + Sync + Send + 'static,
     >(
         &self,
         f: F,
@@ -295,19 +324,73 @@ pub unsafe extern "C" fn async_closure_wrapper<
     'l,
     R: ToLuaMulti + 'l,
     FUT: Future<Output = R> + Send + 'l,
-    F: Fn(&'l State, i32) -> Result<FUT> + Sync + Send + 'l,
+    F: Fn(&'l State, i32) -> Result<FUT> + Sync + Send + 'static,
 >(
     l: *mut lua_State,
 ) -> i32 {
     let state = State::from_raw_state(l);
     #[allow(unused_assignments)]
     let mut pfn = core::mem::transmute(1usize);
-    let f: &'l F = if core::mem::size_of::<F>() == 0 {
+    let callback: &'l F = if core::mem::size_of::<F>() == 0 {
         core::mem::transmute(pfn)
     } else {
         pfn = state.to_userdata(ffi::lua_upvalueindex(1));
         core::mem::transmute(pfn)
     };
 
-    state.yield_task(f)
+    state.yield_task(move |lua: &'l State, base| {
+        let fut = callback(lua, base);
+        Box::new(async move { fut?.await.push_multi(lua) })
+    })
 }
+
+pub trait LuaAsyncMethod<'a, THIS: 'a, ARGS: 'a, RET: 'a>: Send + Sync {
+    fn call_method(&self, lua: &'a State, begin: Index) -> TaskOutput<'a>;
+}
+
+macro_rules! impl_method {
+    ($(($x:ident, $i:tt)) *) => (
+        // For normal function
+        #[allow(unused_parens)]
+        impl<'a,
+            FN: Fn($($x),*) -> FUT + Send + Sync,
+            FUT: Future<Output = RET> + Send + 'a,
+            RET: ToLuaMulti + 'a,
+            $($x: FromLua<'a> + 'a,)*
+        > LuaAsyncMethod<'a, (), ($($x,)*), RET> for FN {
+            #[inline(always)]
+            fn call_method(&self, lua: &'a State, begin: Index) -> TaskOutput<'a> {
+                let future = (|| Result::Ok(self($(check_from_lua::<$x>(lua, begin + $i)?,)*)))();
+                Box::new(async move { future?.await.push_multi(lua) })
+            }
+        }
+
+        // For normal function with &LuaState
+        #[allow(unused_parens)]
+        impl<'a,
+            FN: Fn(&'a State, $($x),*) -> FUT + Send + Sync,
+            FUT: Future<Output = RET> + Send + 'a,
+            RET: ToLuaMulti + 'a,
+            $($x: FromLua<'a> + 'a,)*
+        > LuaAsyncMethod<'a, (), (&'a State, $($x,)*), RET> for FN {
+            #[inline(always)]
+            fn call_method(&self, lua: &'a State, begin: Index) -> TaskOutput<'a> {
+                let future = (|| Result::Ok(self(lua, $(check_from_lua::<$x>(lua, begin + $i)?,)*)))();
+                Box::new(async move { future?.await.push_multi(lua) })
+            }
+        }
+    );
+}
+
+impl_method!((A, 0));
+impl_method!((A, 0)(B, 1));
+impl_method!((A, 0)(B, 1)(C, 2));
+impl_method!((A, 0)(B, 1)(C, 2)(D, 3));
+impl_method!((A, 0)(B, 1)(C, 2)(D, 3)(E, 4));
+impl_method!((A, 0)(B, 1)(C, 2)(D, 3)(E, 4)(F, 5));
+impl_method!((A, 0)(B, 1)(C, 2)(D, 3)(E, 4)(F, 5)(G, 6));
+impl_method!((A, 0)(B, 1)(C, 2)(D, 3)(E, 4)(F, 5)(G, 6)(H, 7));
+impl_method!((A, 0)(B, 1)(C, 2)(D, 3)(E, 4)(F, 5)(G, 6)(H, 7)(I, 8));
+impl_method!((A, 0)(B, 1)(C, 2)(D, 3)(E, 4)(F, 5)(G, 6)(H, 7)(I, 8)(J, 9));
+impl_method!((A, 0)(B, 1)(C, 2)(D, 3)(E, 4)(F, 5)(G, 6)(H, 7)(I, 8)(J, 9)(K, 10));
+impl_method!((A, 0)(B, 1)(C, 2)(D, 3)(E, 4)(F, 5)(G, 6)(H, 7)(I, 8)(J, 9)(K, 10)(L, 11));
