@@ -6,7 +6,6 @@ use core::{ops::Range, result::Result as StdResult};
 use crate::error::Result;
 use crate::marker::ArgRef;
 use crate::prelude::*;
-use crate::serde::SerdeValue;
 use crate::userdata::UserdataRegistry;
 
 impl<T: ToLua> ToLuaMulti for Range<T> {
@@ -221,7 +220,7 @@ pub mod process {
                 this.arg(arg);
                 ArgRef(1)
             })?;
-            mt.add_mut("args", |this: &mut Self, arg: SerdeValue<Vec<&str>>| {
+            mt.add_mut("args", |this: &mut Self, arg: Vec<String>| {
                 this.args(arg.as_slice());
                 ArgRef(1)
             })?;
@@ -406,7 +405,7 @@ pub fn extend_os(s: &LuaState) -> Result<()> {
     use std::process::{Command, Stdio};
 
     fn init_command(arg: LuaTable) -> Result<Command> {
-        let mut args: SerdeValue<Vec<&str>> = arg.cast()?;
+        let mut args: Vec<String> = arg.cast()?;
         if args.is_empty() {
             Err("empty command").lua_result()?;
         }
@@ -417,12 +416,11 @@ pub fn extend_os(s: &LuaState) -> Result<()> {
         args.getopt::<_, Stdio>("stdout")?.map(|v| cmd.stdout(v));
         args.getopt::<_, Stdio>("stderr")?.map(|v| cmd.stderr(v));
         args.getopt::<_, &str>("cwd")?.map(|v| cmd.current_dir(v));
-        args.getopt::<_, SerdeValue<HashMap<&str, &str>>>("env")?
-            .map(|v| {
-                for (k, val) in v.iter() {
-                    cmd.env(k, val);
-                }
-            });
+        args.getopt::<_, HashMap<String, String>>("env")?.map(|v| {
+            for (k, val) in v.into_iter() {
+                cmd.env(k, val);
+            }
+        });
         Ok(cmd)
     }
     os.set_closure("command", |s: &LuaState, arg: LuaValue| match arg {

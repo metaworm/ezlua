@@ -39,6 +39,7 @@ macro_rules! lua_module {
 /// lua.global().set("config", Config::default())?;
 /// // config in lua is `{name = '', path = '', timeout = 0}`
 /// ```
+#[cfg(feature = "serde")]
 #[macro_export]
 macro_rules! impl_tolua_as_serde {
     ($t:ty) => {
@@ -75,6 +76,7 @@ macro_rules! impl_tolua_as_serde {
 /// lua.do_string("set_config({name = 'test', path = '/', timeout = 0})", None)?;
 /// // will print `Config { name: "test", path: "/", timeout: 0 }`
 /// ```
+#[cfg(feature = "serde")]
 #[macro_export]
 macro_rules! impl_fromlua_as_serde {
     ($t:ty) => {

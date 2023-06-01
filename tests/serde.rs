@@ -1,3 +1,5 @@
+#![cfg(feature = "serde")]
+
 use ::serde::{Deserialize, Serialize};
 use ezlua::{prelude::*, serde::SerdeValue};
 

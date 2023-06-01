@@ -54,7 +54,7 @@ pub mod luaapi;
 pub mod macros;
 pub mod marker;
 pub mod prelude;
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", feature = "serde"))]
 pub mod serde;
 pub mod userdata;
 pub mod value;

@@ -274,8 +274,6 @@ fn table_iter() {
             .unwrap();
 
         table.set("array", t.clone()).unwrap();
-        let t = table.deserialize::<Test>().unwrap();
-        std::println!("table deserialize: {t:?}");
         for (k, v) in table.iter().unwrap() {
             if let Some(v) = v.as_table() {
                 for (k, v) in v.iter().unwrap() {

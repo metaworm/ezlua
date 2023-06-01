@@ -1,6 +1,6 @@
 #![feature(async_closure)]
 
-use ezlua::{prelude::*, serde::SerdeValue};
+use ezlua::prelude::*;
 
 #[tokio::test]
 async fn elua_async() {
@@ -80,7 +80,7 @@ async fn sync() {
 
     // let co = Coroutine::new(add).unwrap();
     let ret = add
-        .call_async::<_, ValRef>((lua.global(), SerdeValue((1, 2))))
+        .call_async::<_, ValRef>((lua.global(), vec![1, 2]))
         .await
         .unwrap();
     assert_eq!(ret.cast::<i32>().unwrap(), 3);
