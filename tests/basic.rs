@@ -395,6 +395,15 @@ fn convert() {
         .set_closure("readfile", |file: &str| NilError(std::fs::read(file)))
         .unwrap()
         .set_closure("itervec", |n: i32| IterVec(0..n))
+        .unwrap()
+        .set_closure("iterstr", |n: i32| {
+            IterVec(
+                (0..n)
+                    .map(|i| format!("{i}"))
+                    .collect::<Vec<_>>()
+                    .into_iter(),
+            )
+        })
         .unwrap();
 
     s.do_string(
@@ -403,6 +412,8 @@ fn convert() {
         assert(test(1234) == 1234)
         local t = itervec(3)
         assert(t[1] == 0 and t[2] == 1)
+        local t = iterstr(3)
+        assert(t[1] == '0' and t[2] == '1')
         ",
         None,
     )
@@ -476,4 +487,6 @@ fn non_table_access() {
     num.geti(1).unwrap_err();
     nil.seti(1, 2).unwrap_err();
     num.seti(1, 2).unwrap_err();
+
+    nil.set_metatable(t).unwrap();
 }
