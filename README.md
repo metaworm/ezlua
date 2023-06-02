@@ -2,10 +2,12 @@
 [![crates.io](https://img.shields.io/crates/v/ezlua.svg)](https://crates.io/crates/ezlua)
 [![docs.rs](https://docs.rs/ezlua/badge.svg)](https://docs.rs/ezlua)
 [![Build Status]](https://github.com/metaworm/ezlua/actions)
+[![Coverage Status]](https://codecov.io/gh/metaworm/ezlua)
 
 [ChangeLog] | [FAQ] | [Known issues]
 
 [Build Status]: https://github.com/metaworm/ezlua/workflows/CI/badge.svg
+[Coverage Status]: https://codecov.io/gh/metaworm/ezlua/branch/master/graph/badge.svg?token=L8U8VKCZXF
 [ChangeLog]: CHANGELOG.md
 [FAQ]: FAQ.md
 [Known issues]: https://github.com/metaworm/ezlua/labels/known%20issues
