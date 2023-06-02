@@ -196,12 +196,12 @@ impl UserData for Metadata {
 }
 ```
 
-Types impls the `UserData` trait, ezlua also impls `ToLua` for itself, and impls `FromLua` for its reference
+Types which impls the `UserData` trait, ezlua also impls `ToLua` for it, and impls `FromLua` for its reference
 ```rust
 lua.global().set("path_metadata", Path::metadata)?;
 ```
 
-Defaultly, types binded as userdata is immutable, if you need mutable reference, you can specific a `UserData::Trans` type, and there is a builtin impl that is `RefCell`, so the mutable binding impls looks like this
+Defaultly, types binded as userdata is immutable, if you need **mutable reference**, you can specific a `UserData::Trans` type, and there is a builtin impl that is `RefCell`, so the mutable binding impls looks like this
 ```rust
 use core::cell::RefCell;
 use std::process::{Child, Command, ExitStatus, Stdio};
@@ -224,6 +224,60 @@ impl UserData for Child {
         })?;
     }
 }
+```
+
+Under normal circumstances, you need only impl the `getter`/`setter`/`methods` methods when impl the UserData trait, which allows you "read property"/"write property"/"call method" through the userdata value, but also ezlua provides **more powerful features** for UserData, such as "uservalue access" and "userdata cache".
+
+In order to enable the "uservalue access" feature for an userdata type, just needs to specify `const INDEX_USERVALUE: bool = true`
+```rust
+struct Test {
+    a: i32,
+}
+
+impl UserData for Test {
+    type Trans = RefCell<Self>;
+
+    const INDEX_USERVALUE: bool = true;
+
+    fn methods(mt: UserdataRegistry<Self>) -> LuaResult<()> {
+        mt.set_closure("inc", |mut this: RefMut<Self>| this.a += 1)?;
+        Ok(())
+    }
+}
+
+let uv = lua.new_val(Test { a: 0 })?;
+lua.global().set("uv", uv)?;
+lua.do_string("uv.abc = 3; assert(uv.abc == 3)", None)?;
+lua.do_string("assert(debug.getuservalue(uv).abc == 3)", None)?;
+```
+
+In order to enable the "userdata cache" feature for an userdata type, you should impl the `UserData::key_to_cache` method, which returns a pointer, as a lightuserdata key in the cache table in lua.
+```rust
+#[derive(derive_more::Deref, Clone)]
+struct RcTest(Rc<Test>);
+
+impl UserData for RcTest {
+    fn key_to_cache(&self) -> *const () {
+        self.as_ref() as *const _ as _
+    }
+
+    fn getter(fields: UserdataRegistry<Self>) -> LuaResult<()> {
+        fields.set_closure("a", |this: &Self| this.a)?;
+        Ok(())
+    }
+
+    fn methods(_: UserdataRegistry<Self>) -> LuaResult<()> {
+        Ok(())
+    }
+}
+
+let test = RcTest(Test { a: 123 }.into());
+lua.global().set("uv", test.clone())?;
+// when converting an UserData type to lua value, ezlua will first use the userdata in the cache table if existing,
+// otherwise, create a new userdata and insert it to the cache table, so the "uv" and "uv1" will refer to the same userdata object
+lua.global().set("uv1", test.clone())?;
+lua.do_string("print(uv, uv1)", None)?;
+lua.do_string("assert(uv == uv1)", None)?;
 ```
 
 ### Register your own module

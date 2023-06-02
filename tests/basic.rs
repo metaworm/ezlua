@@ -11,6 +11,8 @@ struct Test {
 impl UserData for Test {
     type Trans = RefCell<Self>;
 
+    const INDEX_USERVALUE: bool = true;
+
     fn methods(mt: UserdataRegistry<Self>) -> LuaResult<()> {
         mt.set_closure("inc", |mut this: RefMut<Self>| this.a += 1)?;
         Ok(())
@@ -53,13 +55,40 @@ fn userdata() {
     let uv = s.new_val(Test { a: 0 }).unwrap();
     assert_eq!(uv.type_of(), LuaType::Userdata);
 
+    // test getter/setter/method
     s.global().set("uv", uv).unwrap();
-    let test_value = 0x11223344;
-    s.global().set_closure("test", move || test_value).unwrap();
-    s.global()
+    s.do_string("print(getmetatable(uv), type(uv))", None)
+        .unwrap();
+    s.do_string("assert(uv.a == 0)", None).unwrap();
+    s.do_string("uv:inc(); assert(uv.a == 1)", None).unwrap();
+    s.do_string("uv.a = 3; assert(uv.a == 3)", None).unwrap();
+
+    // test uservalue access
+    s.do_string("uv.abc = 3; assert(uv.abc == 3)", None)
+        .unwrap();
+    s.do_string("assert(debug.getuservalue(uv).abc == 3)", None)
+        .unwrap();
+
+    // test userdata cache
+    let test = RcTest(Test { a: 123 }.into());
+    s.global().set("uv", test.clone()).unwrap();
+    s.global().set("uv1", test.clone()).unwrap();
+    s.do_string("print(uv, uv1)", None).unwrap();
+    s.do_string("assert(uv == uv1)", None).unwrap();
+    s.do_string("assert(uv.a == 123)", None).unwrap();
+}
+
+#[test]
+fn iter() {
+    let lua = Lua::with_open_libs();
+    let _occupation = (0..20)
+        .map(|_| lua.new_val(()).unwrap())
+        .collect::<Vec<_>>();
+
+    lua.global()
         .set_closure("toiter", || StaticIter::new(0..3))
         .unwrap();
-    s.do_string(
+    lua.do_string(
         r#"
         local iter = toiter()
         assert(iter() == 0)
@@ -69,21 +98,6 @@ fn userdata() {
         None,
     )
     .unwrap();
-
-    s.do_string("assert(test() == 0x11223344)", None).unwrap();
-
-    s.do_string("print(getmetatable(uv), type(uv))", None)
-        .unwrap();
-    s.do_string("assert(uv.a == 0)", None).unwrap();
-    s.do_string("uv:inc(); assert(uv.a == 1)", None).unwrap();
-    s.do_string("uv.a = 3; assert(uv.a == 3)", None).unwrap();
-
-    let test = RcTest(Test { a: 123 }.into());
-    s.global().set("uv", test.clone()).unwrap();
-    s.global().set("uv1", test.clone()).unwrap();
-    s.do_string("print(uv, uv1)", None).unwrap();
-    s.do_string("assert(uv == uv1)", None).unwrap();
-    s.do_string("assert(uv.a == 123)", None).unwrap();
 }
 
 #[test]
@@ -429,22 +443,24 @@ fn convert() {
 
 #[test]
 fn convert_closure() {
-    let s = Lua::with_open_libs();
-    let _occupation = (0..20).map(|_| s.new_val(()).unwrap()).collect::<Vec<_>>();
+    let lua = Lua::with_open_libs();
+    let _occupation = (0..20)
+        .map(|_| lua.new_val(()).unwrap())
+        .collect::<Vec<_>>();
 
-    let g = s.global();
+    let g = lua.global();
     let magic = 0x3310234;
     g.set("magic", magic).unwrap();
-    g.set("closure", s.new_closure(move || magic).unwrap())
+    g.set("closure", lua.new_closure(move || magic).unwrap())
         .unwrap();
     g.set(
         "tostr",
-        s.new_closure1(|_, b: &[u8]| String::from_utf8_lossy(b))
+        lua.new_closure1(|_, b: &[u8]| String::from_utf8_lossy(b))
             .unwrap(),
     )
     .unwrap();
 
-    s.do_string(
+    lua.do_string(
         r"
         assert(closure() == magic)
         assert(tostr('1234abcd') == '1234abcd')
@@ -452,6 +468,10 @@ fn convert_closure() {
         None,
     )
     .unwrap();
+
+    let test_value = 0x11223344;
+    g.set_closure("test", move || test_value).unwrap();
+    lua.do_string("assert(test() == 0x11223344)", None).unwrap();
 }
 
 #[test]

@@ -208,6 +208,58 @@ pub(crate) fn init_wrapper<U: UserData>(mt: &Table) -> Result<()> {
     Ok(())
 }
 
+pub fn clear_cached<U: UserData>(ud: &U, s: &State) -> Result<()> {
+    use crate::luaapi::UnsafeLuaApi;
+
+    s.get_or_init_metatable(init_wrapper::<U>)?;
+    assert!(s.get_metatable(-1));
+    let key = ud.key_to_cache();
+    s.push_light_userdata(key as usize as *mut ());
+    s.push_nil();
+    s.raw_set(-3);
+    s.pop(2);
+
+    Ok(())
+}
+
+fn get_cahced<U: UserData>(s: &State, key: *const ()) -> Result<bool> {
+    use crate::luaapi::UnsafeLuaApi;
+
+    s.get_or_init_metatable(init_wrapper::<U>)?;
+    // use metatable of userdata's metatable as cache table
+    if !s.get_metatable(-1) {
+        UnsafeLuaApi::new_table(s);
+        s.push_value(-1);
+        s.set_metatable(-3);
+        if U::WEAK_REF_CACHE {
+            unsafe {
+                get_weak_meta(s)?;
+            }
+            s.set_metatable(-2);
+        }
+    }
+    s.push_light_userdata(key as usize as *mut ());
+    if s.raw_get(-2) == Type::Userdata {
+        s.replace(-3);
+        s.pop(1);
+        return Ok(true);
+    }
+    s.pop(1);
+    s.push_light_userdata(key as usize as *mut ());
+
+    Ok(false)
+}
+
+fn cache_userdata<U: UserData>(s: &State, _key: *const ()) {
+    use crate::luaapi::UnsafeLuaApi;
+
+    // meta | meta's meta | key | userdata
+    s.push_value(-1);
+    s.replace(-5);
+    s.raw_set(-3);
+    s.pop(1);
+}
+
 /// Bind rust types as lua userdata, which can make lua access rust methods as lua methods or properties
 pub trait UserData: Sized {
     /// `__name` field in metatable
@@ -258,58 +310,6 @@ pub trait UserData: Sized {
     /// get a pointer whose type is lightuserdata as the key in cache table
     fn key_to_cache(&self) -> *const () {
         core::ptr::null()
-    }
-
-    fn clear_cached(&self, s: &State) -> Result<()> {
-        use crate::luaapi::UnsafeLuaApi;
-
-        s.get_or_init_metatable(init_wrapper::<Self>)?;
-        assert!(s.get_metatable(-1));
-        let key = self.key_to_cache();
-        s.push_light_userdata(key as usize as *mut ());
-        s.push_nil();
-        s.raw_set(-3);
-        s.pop(2);
-
-        Ok(())
-    }
-
-    fn get_cahced(s: &State, key: *const ()) -> Result<bool> {
-        use crate::luaapi::UnsafeLuaApi;
-
-        s.get_or_init_metatable(init_wrapper::<Self>)?;
-        // use metatable of userdata's metatable as cache table
-        if !s.get_metatable(-1) {
-            UnsafeLuaApi::new_table(s);
-            s.push_value(-1);
-            s.set_metatable(-3);
-            if Self::WEAK_REF_CACHE {
-                unsafe {
-                    get_weak_meta(s)?;
-                }
-                s.set_metatable(-2);
-            }
-        }
-        s.push_light_userdata(key as usize as *mut ());
-        if s.raw_get(-2) == Type::Userdata {
-            s.replace(-3);
-            s.pop(1);
-            return Ok(true);
-        }
-        s.pop(1);
-        s.push_light_userdata(key as usize as *mut ());
-
-        Ok(false)
-    }
-
-    fn cache_userdata(s: &State, _key: *const ()) {
-        use crate::luaapi::UnsafeLuaApi;
-
-        // meta | meta's meta | key | userdata
-        s.push_value(-1);
-        s.replace(-5);
-        s.raw_set(-3);
-        s.pop(1);
     }
 
     fn uservalue_count(&self, s: &State) -> i32 {
@@ -418,7 +418,9 @@ unsafe extern "C" fn __len(l: *mut lua_State) -> c_int {
 }
 
 fn init_userdata<T: UserData>(s: &State) -> Result<()> {
-    let ud = s.val(-1);
+    use crate::luaapi::UnsafeLuaApi;
+
+    let ud = s.val(s.abs_index(-1));
     T::init_userdata(s, &ud.try_into()?)
 }
 
@@ -430,7 +432,7 @@ impl<T: UserData + 'static> ToLua for T {
 impl<T: UserData<Trans = MaybePointer<T>>> ToLua for MaybePtrRef<'_, T> {
     const __PUSH: Option<fn(Self, &State) -> Result<()>> = Some(|this, s| {
         let key = this.key_to_cache();
-        if !key.is_null() && T::get_cahced(s, key)? {
+        if !key.is_null() && get_cahced::<T>(s, key)? {
             return Ok(());
         }
 
@@ -451,7 +453,7 @@ impl<T: UserData<Trans = MaybePointer<T>>> ToLua for MaybePtrRef<'_, T> {
         }
 
         if !key.is_null() {
-            T::cache_userdata(s, key)
+            cache_userdata::<T>(s, key)
         }
         // debug_assert_eq!(Type::Userdata, s.type_of(-1));
 
@@ -495,7 +497,7 @@ impl State {
     ) -> Result<LuaUserData> {
         let mut n = data.uservalue_count(self);
         self.push_udatauv(data, N as _)?;
-        let ud = LuaUserData::try_from(self.top_val()).unwrap();
+        let ud = LuaUserData::try_from(self.top_val())?;
         for r in refs.into_iter() {
             n += 1;
             ud.set_iuservalue(n, r)?;
@@ -507,7 +509,7 @@ impl State {
         use crate::luaapi::UnsafeLuaApi;
 
         let key = data.key_to_cache();
-        if !key.is_null() && T::get_cahced(self, key)? {
+        if !key.is_null() && get_cahced::<T>(self, key)? {
             return Ok(());
         }
 
@@ -532,7 +534,7 @@ impl State {
         }
 
         if !key.is_null() {
-            T::cache_userdata(self, key)
+            cache_userdata::<T>(self, key)
         }
         // debug_assert_eq!(Type::Userdata, s.type_of(-1));
 
