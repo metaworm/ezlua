@@ -8,10 +8,7 @@ use crate::{
     state::State,
 };
 use alloc::string::String;
-use alloc::{
-    fmt::{self, Display},
-    string::ToString,
-};
+use alloc::{fmt::Display, string::ToString};
 use serde::de::DeserializeOwned;
 #[rustfmt::skip]
 use ::serde::{
@@ -909,127 +906,6 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
         V: Visitor<'de>,
     {
         self.deserialize_any(visitor)
-    }
-}
-
-struct DeLua<'a>(&'a State);
-
-impl<'de> DeserializeSeed<'de> for DeLua<'de> {
-    type Value = ValRef<'de>;
-
-    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserializer.deserialize_any(LuaVisitor(self.0))
-    }
-}
-
-pub struct LuaVisitor<'a>(pub &'a State);
-
-impl<'de> Visitor<'de> for LuaVisitor<'de> {
-    type Value = ValRef<'de>;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("lua visitor")
-    }
-
-    fn visit_bool<E: DeErr>(self, v: bool) -> Result<Self::Value, E> {
-        self.0.new_val(v).map_err(E::custom)
-    }
-
-    fn visit_i64<E: DeErr>(self, v: i64) -> Result<Self::Value, E> {
-        self.0.new_val(v).map_err(E::custom)
-    }
-
-    fn visit_f64<E: DeErr>(self, v: f64) -> Result<Self::Value, E> {
-        self.0.new_val(v).map_err(E::custom)
-    }
-
-    fn visit_u64<E: DeErr>(self, v: u64) -> Result<Self::Value, E> {
-        self.visit_i64(v as _)
-    }
-
-    fn visit_bytes<E: DeErr>(self, v: &[u8]) -> Result<Self::Value, E> {
-        self.0.new_val(v).map_err(E::custom)
-    }
-
-    fn visit_str<E: DeErr>(self, v: &str) -> Result<Self::Value, E> {
-        self.visit_bytes(v.as_bytes())
-    }
-
-    fn visit_none<E: DeErr>(self) -> Result<Self::Value, E> {
-        self.0.new_val(()).map_err(E::custom)
-    }
-
-    fn visit_some<D: Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
-        deserializer.deserialize_any(LuaVisitor(self.0))
-    }
-
-    fn visit_unit<E: DeErr>(self) -> Result<Self::Value, E> {
-        self.0.new_val(()).map_err(E::custom)
-    }
-
-    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-    where
-        A: SeqAccess<'de>,
-    {
-        self.0.check_stack(3).map_err(A::Error::custom)?;
-
-        let size = seq.size_hint();
-        let t = self
-            .0
-            .new_table_with_size(size.unwrap_or_default() as _, 0)
-            .map_err(A::Error::custom)?;
-
-        if let Some(size) = size {
-            for i in 1..=size {
-                match seq.next_element_seed(DeLua(self.0))? {
-                    Some(val) => t
-                        .raw_seti(i as lua_Integer, val)
-                        .map_err(A::Error::custom)?,
-                    None => continue,
-                }
-            }
-        } else {
-            let mut i = 0;
-            while let Some(val) = seq.next_element_seed(DeLua(self.0))? {
-                i += 1;
-                t.raw_seti(i, val).map_err(A::Error::custom)?;
-            }
-        }
-        Ok(t.0)
-    }
-
-    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-    where
-        A: MapAccess<'de>,
-    {
-        self.0.check_stack(3).map_err(A::Error::custom)?;
-
-        let size = map.size_hint();
-        let t = self
-            .0
-            .new_table_with_size(0, size.unwrap_or_default() as _)
-            .map_err(A::Error::custom)?;
-
-        if let Some(size) = size {
-            for _ in 1..=size {
-                match map.next_key_seed(DeLua(self.0))? {
-                    Some(key) => t
-                        .raw_set(key, map.next_value_seed(DeLua(self.0))?)
-                        .map_err(A::Error::custom)?,
-                    None => continue,
-                }
-            }
-        } else {
-            while let Some(key) = map.next_key_seed(DeLua(self.0))? {
-                t.raw_set(key, map.next_value_seed(DeLua(self.0))?)
-                    .map_err(A::Error::custom)?;
-            }
-        }
-
-        Ok(t.0)
     }
 }
 
