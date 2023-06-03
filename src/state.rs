@@ -117,7 +117,7 @@ pub mod unsafe_impl {
 
     use super::*;
     use crate::{
-        luaapi::{GcOption, UnsafeLuaApi},
+        luaapi::{GCMode, GcOption, UnsafeLuaApi},
         value::{Function, LuaString, Table},
     };
 
@@ -333,11 +333,103 @@ pub mod unsafe_impl {
             self.top_val().try_into().expect("table")
         }
 
+        /// Returns the amount of memory (in bytes) currently used inside this Lua state
+        pub fn used_memory(&self) -> usize {
+            let used_kbytes = self.gc(GcOption::Count, 0);
+            let used_kbytes_rem = self.gc(GcOption::CountBytes, 0);
+            (used_kbytes as usize) * 1024 + (used_kbytes_rem as usize)
+        }
+
         /// Do a full GC for lua
         pub fn gc_collect(&self) -> Result<()> {
             self.gc(GcOption::Collect, 0);
 
             Ok(())
+        }
+
+        /// Returns true if the garbage collector is currently running automatically
+        pub fn gc_is_running(&self) -> bool {
+            self.gc(GcOption::IsRunning, 0) != 0
+        }
+
+        /// Stop the Lua GC from running
+        pub fn gc_stop(&self) {
+            self.gc(GcOption::Stop, 0);
+        }
+
+        /// Restarts the Lua GC if it is not running
+        pub fn gc_restart(&self) {
+            self.gc(GcOption::Restart, 0);
+        }
+
+        /// Steps the garbage collector one indivisible step.
+        ///
+        /// Returns true if this has finished a collection cycle.
+        pub fn gc_step(&self) -> Result<bool> {
+            self.gc_step_kbytes(0)
+        }
+
+        /// Steps the garbage collector as though memory had been allocated.
+        ///
+        /// if `kbytes` is 0, then this is the same as calling `gc_step`. Returns true if this step has
+        /// finished a collection cycle.
+        pub fn gc_step_kbytes(&self, kbytes: c_int) -> Result<bool> {
+            unsafe extern "C" fn protect(l: *mut lua_State) -> i32 {
+                lua_pushboolean(l, lua_gc(l, LUA_GCSTEP, lua_tointeger(l, 1) as i32));
+                1
+            }
+            self.protect_call(kbytes, protect)
+        }
+
+        /// Sets the 'pause' value of the collector.
+        ///
+        /// Returns the previous value of 'pause'. More information can be found in the Lua
+        /// [documentation].
+        /// [documentation]: https://www.lua.org/manual/5.4/manual.html#2.5
+        pub fn gc_set_pause(&self, pause: c_int) -> c_int {
+            self.gc(GcOption::SetPause, pause)
+        }
+
+        /// Sets the 'step multiplier' value of the collector.
+        ///
+        /// Returns the previous value of the 'step multiplier'. More information can be found in the
+        /// Lua [documentation].
+        ///
+        /// [documentation]: https://www.lua.org/manual/5.4/manual.html#2.5
+        pub fn gc_set_step_multiplier(&self, step_multiplier: c_int) -> c_int {
+            self.gc(GcOption::SetStepMul, step_multiplier)
+        }
+
+        /// Changes the collector to incremental mode with the given parameters.
+        ///
+        /// Returns the previous mode (always `GCMode::Incremental` in Lua < 5.4).
+        /// More information can be found in the Lua [documentation].
+        ///
+        /// [documentation]: https://www.lua.org/manual/5.4/manual.html#2.5.1
+        pub fn gc_inc(&self, pause: c_int, step_multiplier: c_int, step_size: c_int) -> GCMode {
+            let prev_mode =
+                unsafe { lua_gc(self.state, LUA_GCINC, pause, step_multiplier, step_size) };
+            match prev_mode {
+                LUA_GCINC => GCMode::Incremental,
+                LUA_GCGEN => GCMode::Generational,
+                _ => unreachable!(),
+            }
+        }
+
+        /// Changes the collector to generational mode with the given parameters.
+        ///
+        /// Returns the previous mode. More information about the generational GC
+        /// can be found in the Lua 5.4 [documentation][lua_doc].
+        ///
+        /// [lua_doc]: https://www.lua.org/manual/5.4/manual.html#2.5.2
+        pub fn gc_gen(&self, minor_multiplier: c_int, major_multiplier: c_int) -> GCMode {
+            let prev_mode =
+                unsafe { lua_gc(self.state, LUA_GCGEN, minor_multiplier, major_multiplier) };
+            match prev_mode {
+                LUA_GCGEN => GCMode::Generational,
+                LUA_GCINC => GCMode::Incremental,
+                _ => unreachable!(),
+            }
         }
 
         /// Stack backtrace info

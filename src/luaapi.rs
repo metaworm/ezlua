@@ -1321,6 +1321,13 @@ pub enum GcOption {
     IsRunning = LUA_GCISRUNNING as isize,
 }
 
+/// Mode of the Lua garbage collector (GC)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GCMode {
+    Incremental,
+    Generational,
+}
+
 /// Status of a Lua state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ThreadStatus {
