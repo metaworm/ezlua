@@ -148,6 +148,15 @@ pub mod unsafe_impl {
             self.get_top()
         }
 
+        pub(crate) fn check_nil_pop(&self) -> Result<()> {
+            if self.is_nil(-1) {
+                self.pop(1);
+                Err(Error::Runtime("key is nil".into()))
+            } else {
+                Ok(())
+            }
+        }
+
         #[inline]
         pub fn check_stack(&self, n: i32) -> Result<()> {
             if UnsafeLuaApi::check_stack(self, n) {
@@ -384,8 +393,7 @@ pub mod unsafe_impl {
         /// Sets the 'pause' value of the collector.
         ///
         /// Returns the previous value of 'pause'. More information can be found in the Lua
-        /// [documentation].
-        /// [documentation]: https://www.lua.org/manual/5.4/manual.html#2.5
+        /// [documentation](https://www.lua.org/manual/5.4/manual.html#2.5)
         pub fn gc_set_pause(&self, pause: c_int) -> c_int {
             self.gc(GcOption::SetPause, pause)
         }
@@ -393,9 +401,7 @@ pub mod unsafe_impl {
         /// Sets the 'step multiplier' value of the collector.
         ///
         /// Returns the previous value of the 'step multiplier'. More information can be found in the
-        /// Lua [documentation].
-        ///
-        /// [documentation]: https://www.lua.org/manual/5.4/manual.html#2.5
+        /// Lua [documentation](https://www.lua.org/manual/5.4/manual.html#2.5)
         pub fn gc_set_step_multiplier(&self, step_multiplier: c_int) -> c_int {
             self.gc(GcOption::SetStepMul, step_multiplier)
         }
@@ -403,9 +409,7 @@ pub mod unsafe_impl {
         /// Changes the collector to incremental mode with the given parameters.
         ///
         /// Returns the previous mode (always `GCMode::Incremental` in Lua < 5.4).
-        /// More information can be found in the Lua [documentation].
-        ///
-        /// [documentation]: https://www.lua.org/manual/5.4/manual.html#2.5.1
+        /// More information can be found in the Lua [documentation](https://www.lua.org/manual/5.4/manual.html#2.5.1)
         pub fn gc_inc(&self, pause: c_int, step_multiplier: c_int, step_size: c_int) -> GCMode {
             let prev_mode =
                 unsafe { lua_gc(self.state, LUA_GCINC, pause, step_multiplier, step_size) };
@@ -419,9 +423,7 @@ pub mod unsafe_impl {
         /// Changes the collector to generational mode with the given parameters.
         ///
         /// Returns the previous mode. More information about the generational GC
-        /// can be found in the Lua 5.4 [documentation][lua_doc].
-        ///
-        /// [lua_doc]: https://www.lua.org/manual/5.4/manual.html#2.5.2
+        /// can be found in the Lua 5.4 [documentation](https://www.lua.org/manual/5.4/manual.html#2.5.2)
         pub fn gc_gen(&self, minor_multiplier: c_int, major_multiplier: c_int) -> GCMode {
             let prev_mode =
                 unsafe { lua_gc(self.state, LUA_GCGEN, minor_multiplier, major_multiplier) };

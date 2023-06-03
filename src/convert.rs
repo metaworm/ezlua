@@ -53,6 +53,9 @@ impl FromLua<'_> for serde_bytes::ByteBuf {
     }
 }
 
+/// Trait for (closure)types that can be binded as C function or as method in metatable
+///
+/// See [`State::new_closure`] [`Table::set_closure`]
 pub trait LuaMethod<'a, THIS: 'a, ARGS: 'a, RET: 'a> {
     fn call_method(&self, lua: &'a State) -> Result<Pushed>;
 }
@@ -182,7 +185,14 @@ impl<K: ToLua, V: ToLua> ToLua for HashMap<K, V> {
     }
 }
 
-/// Trait for types that can be taken from the Lua stack.
+/// Trait for types that can be taken from the Lua stack
+///
+/// For the reference types such as `&[u8]`, `&str`, the conversion will fail if `val` not an argument passed by lua.
+/// For the compound reference types such as `Vec<&[u8]>`, the conversion always fail,
+/// because it will create some temporary `ValRef`s on the stack, which can not hold the reference's lifetime.
+///
+/// In order to convert to reference type, you can use the [`ValRef::deserialize`] method with the `serde` feature enabled,
+/// it can guarantee the lifetime of the reference type is same as `&ValRef`
 pub trait FromLua<'a>: Sized {
     const TYPE_NAME: &'static str = core::any::type_name::<Self>();
 
@@ -359,51 +369,6 @@ pub trait ToLuaMulti: Sized {
     /// Define how to push values onto lua stack
     fn push_multi(self, lua: &State) -> Result<usize> {
         Ok(0)
-    }
-}
-
-#[derive(Debug, Deref, DerefMut, From, Into)]
-pub struct MultiRet<T>(pub Vec<T>);
-
-impl<T> Default for MultiRet<T> {
-    fn default() -> Self {
-        Self(Vec::new())
-    }
-}
-
-impl<T: ToLua> ToLuaMulti for MultiRet<T> {
-    fn value_count(&self) -> Option<usize> {
-        Some(self.0.len())
-    }
-
-    fn push_multi(self, s: &State) -> Result<usize> {
-        let len = self.0.len();
-        for val in self.0 {
-            s.push(val)?;
-        }
-        Ok(len as _)
-    }
-}
-
-pub type MultiValue<'a> = MultiRet<Value<'a>>;
-pub type MultiValRef<'a> = MultiRet<ValRef<'a>>;
-
-impl<'a, T: FromLua<'a> + 'a> FromLua<'a> for MultiRet<T> {
-    const TYPE_NAME: &'static str = core::any::type_name::<Self>();
-
-    fn from_lua(lua: &'a State, val: ValRef<'a>) -> Result<Self> {
-        let index = lua.from_index.get();
-        debug_assert_ne!(index, 0);
-        let mut top = lua.get_top();
-        if top == 1 && lua.is_none_or_nil(top) {
-            top = 0;
-        }
-        let count = (top + 1 - index).max(0);
-        let mut result = Vec::with_capacity(count as _);
-        for i in index..=top {
-            result.push(T::from_lua(lua, lua.val(i))?);
-        }
-        Ok(Self(result))
     }
 }
 

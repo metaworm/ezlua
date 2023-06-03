@@ -136,13 +136,13 @@ impl<'a, T: DeserializeOwned + 'a> FromLua<'a> for SerdeOwnedValue<T> {
 }
 
 impl<'a> ValRef<'a> {
-    /// deserialize a lua value
+    /// Deserialize a lua value
     #[inline(always)]
     pub fn deserialize<T: Deserialize<'a>>(&'a self) -> Result<T, DesErr> {
         T::deserialize(self)
     }
 
-    /// transcode a lua value to another serialize format
+    /// Transcode a lua value to another serialize format
     #[inline(always)]
     pub fn transcode<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serde_transcode::transcode(self, serializer)
@@ -510,16 +510,27 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
         match self.type_of() {
             Type::Number => {
                 if self.is_integer() {
-                    visitor.visit_i64(self.cast().unwrap())
+                    visitor.visit_i64(self.to_integer())
                 } else {
-                    visitor.visit_f64(self.cast().unwrap())
+                    visitor.visit_f64(self.to_number())
                 }
             }
             Type::String => self.deserialize_str(visitor),
             Type::Boolean => self.deserialize_bool(visitor),
             _ => {
                 if let Some(t) = self.as_table() {
-                    if t.raw_len() > 0 {
+                    let is_array = t
+                        .metatable()
+                        .map_err(DeErr::custom)?
+                        .filter(|mt| {
+                            self.state
+                                .array_metatable()
+                                .map(|a| a.raw_equal(mt))
+                                .unwrap_or_default()
+                        })
+                        .is_some();
+
+                    if is_array || t.raw_len() > 0 {
                         self.deserialize_seq(visitor)
                     } else {
                         self.deserialize_map(visitor)
@@ -536,6 +547,7 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
     where
         V: Visitor<'de>,
     {
+        // TODO: check strict boolean type
         visitor.visit_bool(self.cast().map_err(|_| DesErr::ExpectedBoolean)?)
     }
 
@@ -544,6 +556,7 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
     where
         V: Visitor<'de>,
     {
+        // TODO: check strict integer type
         visitor.visit_i8(self.cast().map_err(|_| DesErr::ExpectedInteger)?)
     }
 
@@ -926,9 +939,9 @@ impl Serialize for ValRef<'_> {
             }
             Type::Number => {
                 if self.is_integer() {
-                    serializer.serialize_i64(self.cast::<i64>().unwrap_or_default())
+                    serializer.serialize_i64(self.to_integer())
                 } else {
-                    serializer.serialize_f64(self.cast::<f64>().unwrap_or_default())
+                    serializer.serialize_f64(self.to_number())
                 }
             }
             // TODO: serde option

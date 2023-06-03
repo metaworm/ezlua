@@ -345,6 +345,9 @@ fn table_get() {
     t.seti(3, 3).unwrap();
     assert_eq!(t.len().unwrap().cast::<usize>().unwrap(), 3);
 
+    t.get(()).unwrap_err();
+    t.set((), ()).unwrap_err();
+
     lua.do_string(
         "t = setmetatable({}, {__index = function() error() end, __newindex = function() error() end, __len = function() error() end})",
         None,

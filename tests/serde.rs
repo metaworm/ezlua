@@ -90,3 +90,21 @@ fn array_null() {
     assert_eq!(serde_json::to_string(&null).unwrap(), "[null]");
     assert_eq!(serde_json::to_string(&empty).unwrap(), "[]");
 }
+
+#[test]
+fn reference() {
+    let lua = Lua::with_open_libs();
+    let _occupation = (0..20)
+        .map(|_| lua.new_val(()).unwrap())
+        .collect::<Vec<_>>();
+
+    let g = lua.global();
+    lua.do_string("s = '123'", None).unwrap();
+    lua.do_string("t = {'1','2','3'}", None).unwrap();
+
+    g.get("s").unwrap().cast_into::<&str>().unwrap_err();
+    // g.get("t").unwrap().cast_into::<Vec<&str>>().unwrap_err();
+
+    g.get("s").unwrap().deserialize::<&str>().unwrap();
+    g.get("t").unwrap().deserialize::<Vec<&str>>().unwrap();
+}

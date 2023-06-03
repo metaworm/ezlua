@@ -62,6 +62,7 @@ impl<'a> ValRef<'a> {
         self.state
     }
 
+    /// Type of this value
     #[inline]
     pub fn type_of(&self) -> Type {
         self.state.type_of(self.index)
@@ -139,6 +140,7 @@ impl<'a> ValRef<'a> {
         self.state.to_number(self.index)
     }
 
+    /// Index number of this value on the lua stack
     #[inline]
     pub fn index(&self) -> Index {
         self.index
@@ -158,14 +160,18 @@ impl<'a> ValRef<'a> {
         }
     }
 
-    #[inline]
-    pub fn cast<'v, T: FromLua<'a> + 'v>(&'v self) -> Result<T> {
-        self.clone().cast_into()
+    /// Cast a lua value to its rust type, wrapper of [`FromLua::from_lua`]
+    ///
+    /// See [`FromLua`]
+    #[inline(always)]
+    pub fn cast_into<T: FromLua<'a> + 'a>(self) -> Result<T> {
+        FromLua::from_lua(self.state, self)
     }
 
-    #[inline(always)]
-    pub fn cast_into<T: FromLua<'a>>(self) -> Result<T> {
-        FromLua::from_lua(self.state, self)
+    /// Alias to `cast_into()`, not take the ownship, but only convert to static-lifetime types
+    #[inline]
+    pub fn cast<T: FromLua<'a> + 'static>(&self) -> Result<T> {
+        self.clone().cast_into()
     }
 
     pub(crate) fn getf(&self, k: &CStr) -> ValRef {
@@ -182,6 +188,7 @@ impl<'a> ValRef<'a> {
         Ok(())
     }
 
+    /// Get value associated to integer key, equivalent to `return self[i]` in lua
     pub fn geti(&self, i: impl Into<lua_Integer>) -> Result<ValRef<'a>> {
         if self.has_metatable() {
             unsafe extern "C" fn protect_get(l: *mut ffi::lua_State) -> i32 {
@@ -198,6 +205,7 @@ impl<'a> ValRef<'a> {
         }
     }
 
+    /// Set value with integer key, equivalent to `self[i] = v` in lua
     pub fn seti<V: ToLua>(&self, i: impl Into<lua_Integer>, v: V) -> Result<()> {
         if self.has_metatable() {
             unsafe extern "C" fn protect_set(l: *mut ffi::lua_State) -> i32 {
@@ -215,7 +223,7 @@ impl<'a> ValRef<'a> {
         }
     }
 
-    /// Get length of the value, like `return #self` in lua
+    /// Get length of the value, equivalent to `return #self` in lua
     #[inline]
     pub fn len(&self) -> Result<ValRef<'a>> {
         if self.has_metatable() {
@@ -230,7 +238,7 @@ impl<'a> ValRef<'a> {
         }
     }
 
-    /// Set value, equivalent to `self[k] = v` in lua
+    /// Set value with any key, equivalent to `self[k] = v` in lua
     pub fn set<K: ToLua, V: ToLua>(&self, k: K, v: V) -> Result<()> {
         if self.has_metatable() {
             unsafe extern "C" fn protect_set(l: *mut ffi::lua_State) -> i32 {
@@ -240,36 +248,31 @@ impl<'a> ValRef<'a> {
             self.state
                 .protect_call((ArgRef(self.index), k, v), protect_set)
         } else {
-            self.check_type2(Type::Table, Type::Userdata)?;
-            self.state.check_stack(2)?;
-            self.state.push(k)?;
-            self.state.push(v)?;
-            self.state.set_table(self.index);
-            Ok(())
+            self.as_table()
+                .ok_or_else(|| Error::TypeNotMatch(self.type_of()))?
+                .raw_set(k, v)
         }
     }
 
-    /// Get value associated, equivalent to  `return self[k]` in lua
-    pub fn get<K: ToLua>(&self, k: K) -> Result<ValRef<'a>> {
+    /// Get value associated to key, equivalent to `return self[k]` in lua
+    pub fn get<K: ToLua>(&self, key: K) -> Result<ValRef<'a>> {
         if self.has_metatable() {
             unsafe extern "C" fn protect_get(l: *mut ffi::lua_State) -> i32 {
                 ffi::lua_gettable(l, 1);
                 1
             }
             self.state
-                .protect_call((ArgRef(self.index), k), protect_get)
+                .protect_call((ArgRef(self.index), key), protect_get)
         } else {
-            self.check_type2(Type::Table, Type::Userdata)?;
-            self.state.check_stack(2)?;
-            self.state.push(k)?;
-            self.state.get_table(self.index);
-            Ok(self.state.top_val())
+            self.as_table()
+                .ok_or_else(|| Error::TypeNotMatch(self.type_of()))?
+                .raw_get(key)
         }
     }
 
     #[inline]
-    pub fn getopt<K: ToLua, V: FromLua<'a>>(&self, k: K) -> Result<Option<V>> {
-        Ok(self.get(k)?.cast().ok())
+    pub fn getopt<K: ToLua, V: FromLua<'a> + 'a>(&self, k: K) -> Result<Option<V>> {
+        Ok(self.get(k)?.cast_into().ok())
     }
 
     /// Call this value as a function
@@ -354,9 +357,9 @@ impl<'a> ValRef<'a> {
             Type::Nil => Value::Nil,
             Type::Number => {
                 if self.is_integer() {
-                    Value::Integer(self.cast().unwrap())
+                    Value::Integer(self.to_integer())
                 } else {
-                    Value::Number(self.cast().unwrap())
+                    Value::Number(self.to_number())
                 }
             }
             Type::Boolean => Value::Bool(self.to_bool()),
@@ -380,9 +383,9 @@ impl<'a> ValRef<'a> {
             Type::Nil => Value::Nil,
             Type::Number => {
                 if self.is_integer() {
-                    Value::Integer(self.cast().unwrap())
+                    Value::Integer(self.to_integer())
                 } else {
-                    Value::Number(self.cast().unwrap())
+                    Value::Number(self.to_number())
                 }
             }
             Type::Boolean => Value::Bool(self.to_bool()),
@@ -550,14 +553,16 @@ impl_wrap!(LuaUserData<'a>, Type::Userdata, as_userdata);
 impl<'l> Table<'l> {
     /// Get value with a lightuserdata key, commonly is a function pointer
     #[inline]
-    pub fn getp<T>(&self, p: *const T) -> ValRef {
+    pub fn getp<T>(&self, p: *const T) -> Result<ValRef> {
+        self.state.check_stack(1)?;
         self.state.raw_getp(self.index, p);
-        self.state.top_val()
+        Ok(self.state.top_val())
     }
 
     /// Set value with a lightuserdata key
     #[inline]
     pub fn setp<T, V: ToLua>(&self, k: *const T, v: V) -> Result<()> {
+        self.state.check_stack(1)?;
         self.state.push(v)?;
         self.state.raw_setp(self.index, k);
         Ok(())
@@ -565,6 +570,7 @@ impl<'l> Table<'l> {
 
     #[inline]
     pub fn reference<V: ToLua>(&self, v: V) -> Result<Reference> {
+        self.state.check_stack(1)?;
         self.state.push(v)?;
         Ok(self.state.reference(self.index))
     }
@@ -624,6 +630,7 @@ impl<'l> Table<'l> {
     pub fn raw_get<K: ToLua>(&self, key: K) -> Result<ValRef<'l>> {
         self.state.check_stack(2)?;
         self.state.push(key)?;
+        self.state.check_nil_pop()?;
         self.state.raw_get(self.index);
         Ok(self.state.top_val())
     }
@@ -631,20 +638,22 @@ impl<'l> Table<'l> {
     /// Set value by any key without metamethod triggers
     #[inline]
     pub fn raw_set<K: ToLua, V: ToLua>(&self, k: K, v: V) -> Result<()> {
-        // TODO: protect call?
         self.state.check_stack(3)?;
         self.state.push(k)?;
+        self.state.check_nil_pop()?;
         self.state.push(v)?;
         self.state.raw_set(self.index);
         Ok(())
     }
 
+    /// Insert an element into the array table, equivalent to `table.insert` in lua
     #[inline(always)]
     pub fn raw_insert<V: ToLua>(&self, i: usize, val: V) -> Result<()> {
         self.raw_move_vals(i)?;
         self.raw_seti(i as i64, val)
     }
 
+    #[doc(hidden)]
     pub fn raw_move_vals(&self, i: usize) -> Result<()> {
         for i in i..=self.raw_len() {
             self.raw_seti((i + 1) as i64, self.raw_get(i as i64)?)?;
@@ -652,23 +661,27 @@ impl<'l> Table<'l> {
         Ok(())
     }
 
+    /// Push an element to end of the array part of a table, alias to `self.raw_seti((self.raw_len() + 1) as i64, val)`
     #[inline(always)]
     pub fn push<V: ToLua>(&self, val: V) -> Result<()> {
         self.raw_seti((self.raw_len() + 1) as i64, val)
     }
 
+    /// Iterator to the table entries
     #[inline(always)]
     pub fn pairs(&self) -> Result<impl Iterator<Item = (Value, Value)>> {
         Ok(self.iter()?.map(|(k, v)| (k.into_value(), v.into_value())))
     }
 
+    /// Alias to `self.set(name, lua.new_closure(func))`
     #[inline(always)]
     pub fn set_closure<'a, K: ToLua, A: 'a, R: 'a, F: LuaMethod<'a, (), A, R> + 'static>(
         &self,
-        k: K,
-        v: F,
+        name: K,
+        func: F,
     ) -> Result<&Self> {
-        self.raw_set(k, self.state.new_closure(v)?).map(|_| self)
+        self.raw_set(name, self.state.new_closure(func)?)
+            .map(|_| self)
     }
 }
 

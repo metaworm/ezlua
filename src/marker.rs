@@ -10,7 +10,7 @@ use crate::{
     luaapi::{Reference, UnsafeLuaApi},
     prelude::{ArcLuaInner, LuaType},
     state::State,
-    value::ValRef,
+    value::{ValRef, Value},
 };
 
 /// Mark an error result return as `nil, error` rather than raising it
@@ -190,5 +190,65 @@ impl FromLua<'_> for LuaBytes {
                 .ok_or_else(|| Error::TypeNotMatch(val.type_of()))?
                 .to_vec(),
         ))
+    }
+}
+
+/// Wrapper to multiple value, which can be passed from lua as variable arguments and return multiple values to lua
+///
+/// ```rust
+/// lua.global().set(
+///     "echo_strs",
+///     lua.new_function(|_, args: MultiRet<&str>| args)?,
+/// )?;
+/// lua.global().set("echo_vals", lua.new_function(|_, args: MultiValue| args)?)?;
+///
+/// lua.do_string("print(echo_strs('1', '2', '3'))", None)?;
+/// lua.do_string("print(echo_vals('1', true, 2))", None)?;
+/// ```
+#[derive(Debug, Deref, DerefMut, From, Into)]
+pub struct MultiRet<T>(pub Vec<T>);
+
+impl<T> Default for MultiRet<T> {
+    fn default() -> Self {
+        Self(Vec::new())
+    }
+}
+
+impl<T: ToLua> ToLuaMulti for MultiRet<T> {
+    fn value_count(&self) -> Option<usize> {
+        Some(self.0.len())
+    }
+
+    fn push_multi(self, s: &State) -> Result<usize> {
+        let len = self.0.len();
+        for val in self.0 {
+            s.push(val)?;
+        }
+        Ok(len as _)
+    }
+}
+
+/// Alias to `MultiRet<Value<'a>>`
+pub type MultiValue<'a> = MultiRet<Value<'a>>;
+
+/// Alias to `MultiRet<ValRef<'a>>`
+pub type MultiValRef<'a> = MultiRet<ValRef<'a>>;
+
+impl<'a, T: FromLua<'a> + 'a> FromLua<'a> for MultiRet<T> {
+    const TYPE_NAME: &'static str = core::any::type_name::<Self>();
+
+    fn from_lua(lua: &'a State, val: ValRef<'a>) -> Result<Self> {
+        let index = lua.from_index.get();
+        debug_assert_ne!(index, 0);
+        let mut top = lua.get_top();
+        if top == 1 && lua.is_none_or_nil(top) {
+            top = 0;
+        }
+        let count = (top + 1 - index).max(0);
+        let mut result = Vec::with_capacity(count as _);
+        for i in index..=top {
+            result.push(T::from_lua(lua, lua.val(i))?);
+        }
+        Ok(Self(result))
     }
 }
