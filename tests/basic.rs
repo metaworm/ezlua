@@ -1,4 +1,4 @@
-use std::cell::{Ref, RefCell, RefMut};
+use std::cell::{RefCell, RefMut};
 use std::rc::Rc;
 
 use ::serde::{Deserialize, Serialize};
@@ -12,19 +12,23 @@ impl UserData for Test {
     type Trans = RefCell<Self>;
 
     const INDEX_USERVALUE: bool = true;
+    const RAW_LEN: bool = true;
 
     fn methods(mt: UserdataRegistry<Self>) -> LuaResult<()> {
         mt.set_closure("inc", |mut this: RefMut<Self>| this.a += 1)?;
+        mt.set_closure("reset", |this: &Self::Trans| this.borrow_mut().a = 0)?;
+        mt.add_method_mut("inc_n", |_, this, n: i32| this.a += n)?;
         Ok(())
     }
 
     fn getter(fields: UserdataRegistry<Self>) -> LuaResult<()> {
-        fields.set_closure("a", |this: Ref<Self>| this.a)?;
+        fields.add_field_get("a", |_, this| this.a)?;
+        fields.set_closure("size", |this: LuaUserData| this.raw_len())?;
         Ok(())
     }
 
     fn setter(fields: UserdataRegistry<Self>) -> LuaResult<()> {
-        fields.set_closure("a", |mut this: RefMut<Self>, val: i32| this.a = val)?;
+        fields.add_field_set("a", |_, this, val: i32| this.a = val)?;
         Ok(())
     }
 }
@@ -39,6 +43,7 @@ impl UserData for RcTest {
 
     fn getter(fields: UserdataRegistry<Self>) -> LuaResult<()> {
         fields.set_closure("a", |this: &Self| this.a)?;
+        fields.add_field_get("ref_count", |_, this| Rc::strong_count(&this.0))?;
         Ok(())
     }
 
@@ -57,11 +62,16 @@ fn userdata() {
 
     // test getter/setter/method
     s.global().set("uv", uv).unwrap();
+    s.global()
+        .set("uv_size", core::mem::size_of::<<Test as UserData>::Trans>())
+        .unwrap();
     s.do_string("print(getmetatable(uv), type(uv))", None)
         .unwrap();
     s.do_string("assert(uv.a == 0)", None).unwrap();
     s.do_string("uv:inc(); assert(uv.a == 1)", None).unwrap();
     s.do_string("uv.a = 3; assert(uv.a == 3)", None).unwrap();
+    s.do_string("assert(uv.size == uv_size)\nassert(#uv == uv_size)", None)
+        .unwrap();
 
     // test uservalue access
     s.do_string("uv.abc = 3; assert(uv.abc == 3)", None)
@@ -72,8 +82,9 @@ fn userdata() {
     // test userdata cache
     let test = RcTest(Test { a: 123 }.into());
     s.global().set("uv", test.clone()).unwrap();
-    s.global().set("uv1", test.clone()).unwrap();
+    s.global().set("uv1", test).unwrap();
     s.do_string("print(uv, uv1)", None).unwrap();
+    s.do_string("assert(uv.ref_count == 1)", None).unwrap();
     s.do_string("assert(uv == uv1)", None).unwrap();
     s.do_string("assert(uv.a == 123)", None).unwrap();
 }
@@ -242,11 +253,22 @@ fn stack_balance() {
 }
 
 #[test]
-fn table() {
+fn gc() {
     let lua = Lua::with_open_libs();
+    let init_size = lua.used_memory();
+    lua.gc_stop();
     for _ in 0..100 {
         lua.new_table().unwrap();
+        lua.new_string("").unwrap();
+        lua.new_value(()).unwrap();
     }
+    let size = lua.used_memory();
+    lua.gc_restart();
+    lua.gc_collect().unwrap();
+    let final_size = lua.used_memory();
+    assert!(size > init_size);
+    assert!(final_size < size);
+    assert!(final_size <= init_size);
 }
 
 #[test]
