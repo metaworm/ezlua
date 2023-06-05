@@ -2,9 +2,10 @@
 
 use alloc::borrow::Cow;
 use core::ffi::c_void;
+use core::ops;
 
 use crate::{
-    convert::*,
+    convert::{Index, *},
     error::*,
     ffi::{self, lua_Integer, lua_Number},
     luaapi::{Reference, Type, UnsafeLuaApi},
@@ -772,5 +773,109 @@ impl<'a> LuaUserData<'a> {
     pub unsafe fn userdata_ref_mut<U: UserData>(&self) -> Option<&mut U::Trans> {
         self.state
             .test_userdata_meta::<U::Trans>(self.index, crate::userdata::init_wrapper::<U>)
+    }
+}
+
+macro_rules! protect_airth {
+    ($op:expr) => {{
+        unsafe extern "C" fn protect(l: *mut ffi::lua_State) -> i32 {
+            ffi::lua_arith(l, $op);
+            1
+        }
+        protect
+    }};
+}
+
+macro_rules! impl_binop {
+    ($t:ident, $trait:ty, $name:ident, $method:ident, $op:expr) => {
+        #[inline]
+        pub fn $method(&self, rhs: impl ToLua) -> Result<Self> {
+            impl<'l, $t: ToLua> $trait for &ValRef<'l> {
+                type Output = Result<ValRef<'l>>;
+
+                fn $name(self, rhs: T) -> Self::Output {
+                    self.$method(rhs)
+                }
+            }
+
+            impl<'l, $t: ToLua> $trait for ValRef<'l> {
+                type Output = Result<ValRef<'l>>;
+
+                fn $name(self, rhs: T) -> Self::Output {
+                    self.$method(rhs)
+                }
+            }
+
+            self.state.protect_call((self, rhs), protect_airth!($op))
+        }
+    };
+}
+
+macro_rules! impl_op {
+    ($trait:ty, $name:ident, $method:ident, $op:expr) => {
+        #[inline]
+        pub fn $method(&self) -> Result<Self> {
+            impl<'l> $trait for &ValRef<'l> {
+                type Output = Result<ValRef<'l>>;
+
+                fn $name(self) -> Self::Output {
+                    self.$method()
+                }
+            }
+
+            impl<'l> $trait for ValRef<'l> {
+                type Output = Result<ValRef<'l>>;
+
+                fn $name(self) -> Self::Output {
+                    self.$method()
+                }
+            }
+
+            self.state.protect_call(self, protect_airth!($op))
+        }
+    };
+}
+
+impl ValRef<'_> {
+    impl_binop!(T, ops::Add<T>, add, airth_add, ffi::LUA_OPADD);
+    impl_binop!(T, ops::Sub<T>, sub, airth_sub, ffi::LUA_OPSUB);
+    impl_binop!(T, ops::Mul<T>, mul, airth_mul, ffi::LUA_OPMUL);
+    impl_binop!(T, ops::Div<T>, div, airth_div, ffi::LUA_OPDIV);
+    impl_binop!(T, ops::Rem<T>, rem, airth_rem, ffi::LUA_OPMOD);
+    impl_binop!(T, ops::BitAnd<T>, bitand, airth_bitand, ffi::LUA_OPBAND);
+    impl_binop!(T, ops::BitOr<T>, bitor, airth_bitor, ffi::LUA_OPBOR);
+    impl_binop!(T, ops::BitXor<T>, bitxor, airth_bitxor, ffi::LUA_OPBXOR);
+    impl_binop!(T, ops::Shl<T>, shl, airth_shl, ffi::LUA_OPSHL);
+    impl_binop!(T, ops::Shr<T>, shr, airth_shr, ffi::LUA_OPSHR);
+
+    impl_op!(ops::Neg, neg, arith_neg, ffi::LUA_OPUNM);
+    impl_op!(ops::Not, not, arith_not, ffi::LUA_OPBNOT);
+
+    pub fn idiv(&self, rhs: impl ToLua) -> Result<Self> {
+        self.state
+            .protect_call((self, rhs), protect_airth!(ffi::LUA_OPIDIV))
+    }
+
+    pub fn pow(&self, rhs: impl ToLua) -> Result<Self> {
+        self.state
+            .protect_call((self, rhs), protect_airth!(ffi::LUA_OPPOW))
+    }
+}
+
+macro_rules! protect_compare {
+    ($op:expr) => {{
+        unsafe extern "C" fn protect(l: *mut ffi::lua_State) -> i32 {
+            ffi::lua_pushboolean(l, ffi::lua_compare(l, 1, 2, $op));
+            1
+        }
+        protect
+    }};
+}
+
+impl PartialEq for ValRef<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.state
+            .protect_call((self, other), protect_compare!(ffi::LUA_OPEQ))
+            .unwrap_or_default()
     }
 }

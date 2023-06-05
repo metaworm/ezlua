@@ -532,4 +532,32 @@ fn non_table_access() {
     num.seti(1, 2).unwrap_err();
 
     nil.set_metatable(t).unwrap();
+
+    nil.pcall_void(()).unwrap_err();
+}
+
+#[test]
+fn arith() {
+    let lua = Lua::with_open_libs();
+    let _occupation = (0..20)
+        .map(|_| lua.new_val(()).unwrap())
+        .collect::<Vec<_>>();
+
+    let a = lua.new_val(3).unwrap();
+    let b = lua.new_val(2).unwrap();
+    assert_eq!((&a + &b).unwrap(), lua.new_val(5).unwrap());
+    assert_eq!((&a + 2).unwrap(), lua.new_val(5).unwrap());
+    assert_eq!((&a - &b).unwrap(), lua.new_val(1).unwrap());
+    assert_eq!((&a * &b).unwrap(), lua.new_val(6).unwrap());
+    assert_eq!((&a / &b).unwrap(), lua.new_val(1.5).unwrap());
+    assert_eq!((&a % &b).unwrap(), lua.new_val(1).unwrap());
+    assert_eq!((&a & &b).unwrap(), lua.new_val(3 & 2).unwrap());
+    assert_eq!((&a | &b).unwrap(), lua.new_val(3 | 2).unwrap());
+    assert_eq!((&a ^ &b).unwrap(), lua.new_val(3 ^ 2).unwrap());
+    assert_eq!((&a >> &b).unwrap(), lua.new_val(3 >> 2).unwrap());
+    assert_eq!((&a << &b).unwrap(), lua.new_val(3 << 2).unwrap());
+
+    assert_eq!(a.clone(), lua.new_val(3).unwrap());
+    assert_eq!((!a.clone()).unwrap(), lua.new_val(!3i64).unwrap());
+    assert_eq!((-a.clone()).unwrap(), lua.new_val(-3).unwrap());
 }
