@@ -43,6 +43,8 @@ pub mod str {
 }
 
 pub mod binding;
+#[cfg(feature = "compact")]
+pub mod compat;
 pub mod convert;
 pub mod error;
 #[doc(hidden)]

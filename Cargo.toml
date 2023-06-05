@@ -19,6 +19,7 @@ json = ['serde_json', 'serde']
 std = ['bitflags']
 unsafe_send_sync = []
 async = ['unsafe_send_sync']
+compat = []
 
 [dependencies]
 libc = '0.2' 
