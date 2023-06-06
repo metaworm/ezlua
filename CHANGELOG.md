@@ -1,4 +1,9 @@
 
+## v0.3.2
+
+- Added `compat` feature, impls a simple compatibility layer to mlua/rlua
+- Added impls `Add/Sub/Mul/Div/...` for `ValRef`, which you can perform arithmetic operations in rust, just like in lua
+
 ## v0.3.1
 
 - Added `impl_tolua_as_serde!`/`impl_fromlua_as_serde!` macro to `impl ToLua`/`impl FromLua` for serializable types easily
