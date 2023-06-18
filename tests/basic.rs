@@ -178,6 +178,7 @@ fn call_lua() {
 
     let g = s.global();
     assert_eq!(g.type_of(), LuaType::Table);
+    assert!(!g.to_pointer().is_null());
 
     println!("top: {}", s.stack_top());
     for i in 1..10 {
@@ -194,6 +195,7 @@ fn call_lua() {
     println!("top: {}", s.stack_top());
 
     let fun = s.load("print(...)", None).unwrap();
+    assert!(!fun.to_pointer().is_null());
     fun.pcall::<_, ()>((1, 2, 3)).unwrap();
 
     g.set("g_number", 12345).unwrap();

@@ -141,6 +141,11 @@ impl<'a> ValRef<'a> {
         self.state.to_number(self.index)
     }
 
+    #[inline]
+    pub fn to_pointer(&self) -> *const c_void {
+        self.state.to_pointer(self.index)
+    }
+
     /// Index number of this value on the lua stack
     #[inline]
     pub fn index(&self) -> Index {
