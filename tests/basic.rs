@@ -114,6 +114,22 @@ fn iter() {
 }
 
 #[test]
+fn dump() {
+    let lua = Lua::with_open_libs();
+    let _occupation = (0..20)
+        .map(|_| lua.new_val(()).unwrap())
+        .collect::<Vec<_>>();
+
+    let fun = lua.load("return 1134 + 2243", None).unwrap();
+    let fun2 = lua.load(fun.dump(false), None).unwrap();
+
+    assert_eq!(
+        fun.pcall::<_, ValRef>(()).unwrap(),
+        fun2.pcall::<_, ValRef>(()).unwrap()
+    );
+}
+
+#[test]
 fn arguments() -> LuaResult<()> {
     let s = Lua::with_open_libs();
     let _occupation = (0..20).map(|_| s.new_val(()).unwrap()).collect::<Vec<_>>();

@@ -1,6 +1,6 @@
 //! Implementation to lua value
 
-use alloc::borrow::Cow;
+use alloc::{borrow::Cow, vec::Vec};
 use core::ffi::c_void;
 use core::ops;
 
@@ -705,6 +705,16 @@ impl<'a> Function<'a> {
         self.state.push(val)?;
         self.state.set_upvalue(self.index, i);
         Ok(())
+    }
+
+    /// Dumps the function as a binary chunk.
+    ///
+    /// If `strip` is true, the binary representation may not include all debug information
+    /// about the function, to save space.
+    pub fn dump(&self, strip: bool) -> Vec<u8> {
+        let mut data: Vec<u8> = Vec::new();
+        self.state.dump(|buf| data.extend_from_slice(buf), strip);
+        data
     }
 }
 
