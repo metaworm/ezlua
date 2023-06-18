@@ -317,18 +317,17 @@ pub mod unsafe_impl {
 
         /// Register your own lua module, which can be load by `require` function in lua
         #[inline(always)]
-        pub fn register_module<'a, F: Fn(&'a State) -> Result<Table<'a>>>(
+        pub fn register_module<'a, F: Fn(&'a State) -> Result<Table<'a>> + 'static>(
             &self,
             name: &str,
             init: F,
             global: bool,
         ) -> Result<()> {
-            assert_eq!(core::mem::size_of::<F>(), 0);
             self.check_stack(5)?;
             let _guard = self.stack_guard();
             self.requiref(
                 &CString::new(name).map_err(Error::runtime_debug)?,
-                crate::convert::function_wrapper(init),
+                crate::convert::module_function_wrapper(init),
                 global,
             );
             Ok(())
@@ -591,7 +590,6 @@ pub mod unsafe_impl {
             }
         }
 
-        #[inline(always)]
         pub(crate) unsafe fn error_string(self, e: impl AsRef<str>) -> ! {
             self.push_string(e.as_ref());
             core::mem::drop(e);

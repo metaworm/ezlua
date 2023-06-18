@@ -422,7 +422,7 @@ macro_rules! impl_method {
         // For normal function
         #[allow(unused_parens)]
         impl<'a,
-            FN: Fn($($x),*) -> RET,
+            FN: Fn($($x),*) -> RET + 'static,
             RET: ToLuaMulti + 'a,
             $($x: FromLua<'a> + 'a,)*
         > LuaMethod<'a, (), ($($x,)*), RET> for FN {
@@ -435,7 +435,7 @@ macro_rules! impl_method {
         // For normal function with &LuaState
         #[allow(unused_parens)]
         impl<'a,
-            FN: Fn(&'a State, $($x),*) -> RET,
+            FN: Fn(&'a State, $($x),*) -> RET + 'static,
             RET: ToLuaMulti + 'a,
             $($x: FromLua<'a> + 'a,)*
         > LuaMethod<'a, (), (&'a State, $($x,)*), RET> for FN {
@@ -448,7 +448,7 @@ macro_rules! impl_method {
         // For Deref
         #[allow(unused_parens)]
         impl<'a,
-            FN: Fn(&T $(,$x)*) -> RET,
+            FN: Fn(&T $(,$x)*) -> RET + 'static,
             T: 'a,
             THIS: Deref<Target = T> + ?Sized + 'a,
             RET: ToLuaMulti + 'a,
@@ -466,7 +466,7 @@ macro_rules! impl_method {
         // For Deref Deref
         #[allow(unused_parens)]
         impl<'a,
-            FN: Fn(&T $(,$x)*) -> RET,
+            FN: Fn(&T $(,$x)*) -> RET + 'static,
             T: ?Sized + 'a,
             THIS: UserData + Deref<Target = T> + 'a,
             RET: ToLuaMulti + 'a,
@@ -484,7 +484,7 @@ macro_rules! impl_method {
         // For &State, Deref
         #[allow(unused_parens)]
         impl<'a,
-            FN: for<'b> Fn(&'b State, &'b T $(,$x)*) -> RET,
+            FN: for<'b> Fn(&'b State, &'b T $(,$x)*) -> RET + 'static,
             T: 'a,
             THIS: Deref<Target = T> + ?Sized + 'a,
             RET: ToLuaMulti + 'a,
@@ -502,7 +502,7 @@ macro_rules! impl_method {
         // For DerefMut
         #[allow(unused_parens)]
         impl<'a,
-            FN: Fn(&mut T $(,$x)*) -> RET,
+            FN: Fn(&mut T $(,$x)*) -> RET + 'static,
             T: 'a,
             THIS: DerefMut<Target = T> + 'a,
             RET: ToLuaMulti + 'a,
@@ -520,7 +520,7 @@ macro_rules! impl_method {
         // For DerefMut DerefMut
         #[allow(unused_parens)]
         impl<'a,
-            FN: Fn(&mut T $(,$x)*) -> RET,
+            FN: Fn(&mut T $(,$x)*) -> RET + 'static,
             T: ?Sized + 'a,
             THIS: UserData + DerefMut<Target = T> + 'a,
             RET: ToLuaMulti + 'a,
@@ -538,7 +538,7 @@ macro_rules! impl_method {
         // For &State, DerefMut
         #[allow(unused_parens)]
         impl<'a,
-            FN: Fn(&'a State, &mut T $(,$x)*)->RET,
+            FN: Fn(&'a State, &mut T $(,$x)*) -> RET + 'static,
             T: 'a,
             THIS: DerefMut<Target = T> + 'a,
             RET: ToLuaMulti + 'a,
@@ -713,7 +713,7 @@ impl State {
         RET: ToLuaMulti + 'l,
         F: Fn(&'l State, ARGS) -> RET + 'static,
     >(
-        &self,
+        &'l self,
         fun: F,
     ) -> Result<Function<'_>> {
         self.bind_closure(
@@ -780,7 +780,9 @@ impl State {
 
 /// Converts a rust closure to lua C function, for module creation purpose
 #[inline(always)]
-pub fn module_function_wrapper<'l, F: Fn(&'l State) -> Result<Table<'l>>>(fun: F) -> CFunction {
+pub fn module_function_wrapper<'l, F: Fn(&'l State) -> Result<Table<'l>> + 'static>(
+    fun: F,
+) -> CFunction {
     assert!(core::mem::size_of::<F>() == 0);
     function_wrapper(fun)
 }

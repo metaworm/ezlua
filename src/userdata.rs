@@ -1,6 +1,6 @@
 //! Implementation to userdata binding
 
-use alloc::string::ToString;
+use alloc::{format, string::ToString};
 use core::{
     cell::{Ref, RefCell, RefMut},
     ffi::c_int,
@@ -274,6 +274,9 @@ pub trait UserData: Sized {
     /// set the cache table is a weaked reference if key_to_cache enabled
     const WEAK_REF_CACHE: bool = false;
 
+    /// whether raising error when accessing non-exists property
+    const ACCESS_ERROR: bool = true;
+
     type Trans: UserDataTrans<Self> = Self;
 
     /// add methods
@@ -328,7 +331,7 @@ pub trait UserData: Sized {
         if s.get_table(lua_upvalueindex(1)) == Type::Function {
             s.push_value(1);
             s.push_value(2);
-            s.call(2, 1);
+            s.tailcall(2, 1);
             return 1;
         }
 
@@ -352,8 +355,14 @@ pub trait UserData: Sized {
         if s.type_of(-1) == Type::Function {
             s.push_value(1);
             s.push_value(2);
-            s.call(2, 1);
+            s.tailcall(2, 1);
             return 1;
+        }
+
+        if Self::ACCESS_ERROR {
+            let field = s.to_string_lossy(2).unwrap_or_default();
+            let error = format!("index non-exists field: {field:?}");
+            s.error_string(error);
         }
 
         return 0;
@@ -370,7 +379,7 @@ pub trait UserData: Sized {
             s.push_value(1); // self
             s.push_value(3); // value
             s.push_value(2); // key
-            s.call(3, 0);
+            s.tailcall(3, 0);
             return 0;
         }
 
@@ -380,7 +389,12 @@ pub trait UserData: Sized {
             s.push_value(2);
             s.push_value(3);
             s.set_table(-3);
+        } else if Self::ACCESS_ERROR {
+            let field = s.to_string_lossy(2).unwrap_or_default();
+            let error = format!("index non-exists field: {field:?}");
+            s.error_string(error);
         }
+
         return 0;
     }
 

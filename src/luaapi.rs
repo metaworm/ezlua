@@ -530,6 +530,12 @@ impl State {
         unsafe { lua_call(self.state, n, r) }
     }
 
+    fn tailcall(self, n: c_int, r: c_int) {
+        let state = self.state;
+        drop(self);
+        unsafe { lua_call(state, n, r) }
+    }
+
     //===========================================================================
     // Coroutine functions
     //===========================================================================

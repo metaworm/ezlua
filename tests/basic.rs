@@ -87,6 +87,8 @@ fn userdata() {
     s.do_string("assert(uv.ref_count == 1)", None).unwrap();
     s.do_string("assert(uv == uv1)", None).unwrap();
     s.do_string("assert(uv.a == 123)", None).unwrap();
+
+    s.do_string("print(uv.not_exsits)", None).unwrap_err();
 }
 
 #[test]
@@ -534,6 +536,8 @@ fn non_table_access() {
     nil.set_metatable(t).unwrap();
 
     nil.pcall_void(()).unwrap_err();
+
+    nil.close().unwrap_err();
 }
 
 #[test]
