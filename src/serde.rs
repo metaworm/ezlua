@@ -7,8 +7,10 @@ use crate::{
     prelude::*,
     state::State,
 };
-use alloc::string::String;
-use alloc::{fmt::Display, string::ToString};
+use alloc::{
+    fmt::Display,
+    string::{String, ToString},
+};
 use serde::de::DeserializeOwned;
 #[rustfmt::skip]
 use ::serde::{
@@ -924,6 +926,14 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
 
 impl Serialize for ValRef<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use core::cell::RefCell;
+        use core::ffi::c_void;
+        use std::collections::HashSet;
+
+        std::thread_local! {
+            static VISITED: RefCell<HashSet<*const c_void>> = RefCell::new(HashSet::default());
+        }
+
         match self.type_of() {
             Type::String => {
                 let bytes = self.to_bytes().unwrap_or_default();
@@ -949,34 +959,48 @@ impl Serialize for ValRef<'_> {
             Type::Boolean => serializer.serialize_bool(self.to_bool()),
             _ => {
                 if let Some(t) = self.as_table() {
-                    let len = t.raw_len() as usize;
-                    let is_array = t
-                        .metatable()
-                        .map_err(Error::custom)?
-                        .filter(|mt| {
-                            self.state
-                                .array_metatable()
-                                .map(|a| a.raw_equal(mt))
-                                .unwrap_or_default()
-                        })
-                        .is_some();
+                    let ptr = t.to_pointer();
+                    let result = VISITED.with(|visited| {
+                        {
+                            let mut visited = visited.borrow_mut();
+                            if visited.contains(&ptr) {
+                                return Err(Error::custom("recursive table detected"));
+                            }
+                            visited.insert(ptr);
+                        }
 
-                    t.state.check_stack(3).map_err(Error::custom)?;
-                    if is_array || len > 0 {
-                        let mut seq = serializer.serialize_seq(Some(len))?;
-                        for i in 1..=len {
-                            seq.serialize_element(
-                                &t.raw_geti(i as lua_Integer).map_err(Error::custom)?,
-                            )?;
+                        let len = t.raw_len() as usize;
+                        let is_array = t
+                            .metatable()
+                            .map_err(Error::custom)?
+                            .filter(|mt| {
+                                self.state
+                                    .array_metatable()
+                                    .map(|a| a.raw_equal(mt))
+                                    .unwrap_or_default()
+                            })
+                            .is_some();
+
+                        t.state.check_stack(3).map_err(Error::custom)?;
+
+                        if is_array || len > 0 {
+                            let mut seq = serializer.serialize_seq(Some(len))?;
+                            for i in 1..=len {
+                                seq.serialize_element(
+                                    &t.raw_geti(i as lua_Integer).map_err(Error::custom)?,
+                                )?;
+                            }
+                            seq.end()
+                        } else {
+                            let mut map = serializer.serialize_map(None)?;
+                            for (k, v) in t.iter().map_err(Error::custom)? {
+                                map.serialize_entry(&k, &v)?;
+                            }
+                            map.end()
                         }
-                        seq.end()
-                    } else {
-                        let mut map = serializer.serialize_map(None)?;
-                        for (k, v) in t.iter().map_err(Error::custom)? {
-                            map.serialize_entry(&k, &v)?;
-                        }
-                        map.end()
-                    }
+                    });
+                    VISITED.with(|v| v.borrow_mut().remove(&ptr));
+                    result
                 } else {
                     serializer.serialize_none()
                 }

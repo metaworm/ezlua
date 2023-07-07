@@ -108,3 +108,25 @@ fn reference() {
     g.get("s").unwrap().deserialize::<&str>().unwrap();
     g.get("t").unwrap().deserialize::<Vec<&str>>().unwrap();
 }
+
+#[cfg(feature = "json")]
+#[test]
+fn nested() {
+    let lua = Lua::with_open_libs();
+    let _occupation = (0..20)
+        .map(|_| lua.new_val(()).unwrap())
+        .collect::<Vec<_>>();
+
+    let g = lua.global();
+    lua.register_module("json", ezlua::binding::json::open, true);
+    lua.do_string(
+        "
+    local t1 = {abc = 123}
+    local t2 = {parent = t1}
+    t1.child = t2
+    json.dump(t1)
+    ",
+        None,
+    )
+    .unwrap_err();
+}
