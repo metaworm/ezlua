@@ -216,6 +216,32 @@ pub mod unsafe_impl {
             None
         }
 
+        /// Clear the free slots, assign nil, and shrink the lua stack as much as possible
+        pub fn clear_slots(&self) -> Result<()> {
+            let mut top = self.stack_top();
+            loop {
+                let free = self.free.borrow().peek().copied();
+                if free == Some(top) {
+                    self.pop(1);
+                    top -= 1;
+                    self.free.borrow_mut().pop();
+                } else {
+                    break;
+                }
+            }
+
+            let slots = self.free.borrow();
+            if !slots.is_empty() {
+                self.check_stack(1)?;
+                for &i in slots.iter() {
+                    self.push_nil();
+                    self.replace(i);
+                }
+            }
+
+            Ok(())
+        }
+
         pub(crate) fn val(&self, i: Index) -> ValRef {
             debug_assert!(i > 0);
             if i <= self.base {
