@@ -583,3 +583,36 @@ fn arith() {
     assert_eq!((!a.clone()).unwrap(), lua.new_val(!3i64).unwrap());
     assert_eq!((-a.clone()).unwrap(), lua.new_val(-3).unwrap());
 }
+
+#[test]
+fn stack_overflow() {
+    let lua = Lua::with_open_libs();
+
+    let mut threads = vec![];
+    for _ in 0..10 {
+        let co = Coroutine::empty(&lua);
+        let t = std::thread::spawn(move || {
+            for _ in 0..10 {
+                let err = co
+                    .do_string(
+                        r#"
+            function rec(n)
+                local a, b, c, d, e, f, g
+                -- print(n)
+                local result = rec(n + 1)
+                return result
+            end
+            rec(0)
+            "#,
+                        None,
+                    )
+                    .unwrap_err();
+                assert!(err.to_string().find("stack overflow").is_some());
+            }
+        });
+        threads.push(t);
+    }
+    for t in threads {
+        t.join().unwrap()
+    }
+}
