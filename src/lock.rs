@@ -3,11 +3,15 @@
 use crate::ffi::{lua_State, lua_getextraspace};
 
 use alloc::boxed::Box;
-use parking_lot::{lock_api::RawMutex, Mutex};
+#[cfg(feature = "parking_lot")]
+use parking_lot::{Mutex, MutexGuard};
+#[cfg(not(feature = "parking_lot"))]
+use std::sync::{Mutex, MutexGuard};
 
 #[repr(C)]
 pub struct Extra {
     mutex: Mutex<()>,
+    guard: Option<MutexGuard<'static, ()>>,
 }
 
 #[inline(always)]
@@ -17,19 +21,23 @@ pub fn get_extra<'a>(l: *mut lua_State) -> &'a mut Extra {
 
 #[no_mangle]
 unsafe extern "C" fn ezlua_lock(l: *mut lua_State) {
-    let extra = get_extra(l);
-    extra.mutex.raw().lock();
+    let extra: &'static mut Extra = get_extra(l);
+    #[cfg(not(feature = "parking_lot"))]
+    extra.guard.replace(extra.mutex.lock().expect("lualock"));
+    #[cfg(feature = "parking_lot")]
+    extra.guard.replace(extra.mutex.lock());
 }
 
 #[no_mangle]
 unsafe extern "C" fn ezlua_unlock(l: *mut lua_State) {
-    get_extra(l).mutex.force_unlock()
+    get_extra(l).guard.take();
 }
 
 #[no_mangle]
 unsafe extern "C" fn ezlua_userstateopen(l: *mut lua_State) {
     let extra = Box::new(Extra {
         mutex: Mutex::new(()),
+        guard: None,
     });
     *core::mem::transmute::<_, *mut *mut Extra>(lua_getextraspace(l)) = Box::into_raw(extra);
 }
