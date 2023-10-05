@@ -777,6 +777,13 @@ impl<'a> LuaUserData<'a> {
         }
     }
 
+    pub unsafe fn get_ref_unchecked<U: UserData>(&self) -> Option<&mut U::Trans> {
+        self.state
+            .to_userdata(self.index)
+            .cast::<U::Trans>()
+            .as_mut()
+    }
+
     pub fn userdata_ref<U: UserData>(&self) -> Option<&U::Trans> {
         unsafe {
             self.state

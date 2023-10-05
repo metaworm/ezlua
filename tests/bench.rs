@@ -41,7 +41,7 @@ fn test() {
                 lua.new_closure2(|_, s: &[u8], p: usize| &s[p..]).unwrap(),
             )
             .unwrap();
-        lua.global().set_closure("getTest", Test::default);
+        lua.global().set_closure("getTest", Test::default).unwrap();
 
         lua.load_file("tests/bench.lua")
             .unwrap()
@@ -98,10 +98,12 @@ fn test() {
                 .unwrap(),
             )
             .unwrap();
-        lua.globals().set(
-            "getTest",
-            lua.create_function(|_, ()| Ok(Test::default())).unwrap(),
-        );
+        lua.globals()
+            .set(
+                "getTest",
+                lua.create_function(|_, ()| Ok(Test::default())).unwrap(),
+            )
+            .unwrap();
 
         lua.load(Path::new("tests/bench.lua"))
             .call::<_, ()>(())
