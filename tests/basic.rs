@@ -82,7 +82,7 @@ fn userdata() {
     // test userdata cache
     let test = RcTest(Test { a: 123 }.into());
     s.global().set("uv", test.clone()).unwrap();
-    s.global().set("uv1", test).unwrap();
+    s.global().set("uv1", RcTest(test.0.clone())).unwrap();
     s.do_string("print(uv, uv1)", None).unwrap();
     s.do_string("assert(uv.ref_count == 1)", None).unwrap();
     s.do_string("assert(uv == uv1)", None).unwrap();

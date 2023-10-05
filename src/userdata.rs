@@ -163,7 +163,7 @@ impl<'a, T: UserData<Trans = MaybePointer<T>>> FromLua<'a> for MaybePtrRef<'a, T
     }
 }
 
-pub(crate) fn init_wrapper<U: UserData>(mt: &Table) -> Result<()> {
+pub fn init_wrapper<U: UserData>(mt: &Table) -> Result<()> {
     use crate::luaapi::UnsafeLuaApi;
 
     debug_assert_eq!(mt.type_of(), Type::Table);
@@ -211,7 +211,7 @@ pub(crate) fn init_wrapper<U: UserData>(mt: &Table) -> Result<()> {
 pub fn clear_cached<U: UserData>(ud: &U, s: &State) -> Result<()> {
     use crate::luaapi::UnsafeLuaApi;
 
-    s.get_or_init_metatable(init_wrapper::<U>)?;
+    s.get_or_init_metatable(U::metatable_key())?;
     assert!(s.get_metatable(-1));
     let key = ud.key_to_cache();
     s.push_light_userdata(key as usize as *mut ());
@@ -225,7 +225,7 @@ pub fn clear_cached<U: UserData>(ud: &U, s: &State) -> Result<()> {
 fn get_cahced<U: UserData>(s: &State, key: *const ()) -> Result<bool> {
     use crate::luaapi::UnsafeLuaApi;
 
-    s.get_or_init_metatable(init_wrapper::<U>)?;
+    s.get_or_init_metatable(U::metatable_key())?;
     // use metatable of userdata's metatable as cache table
     if !s.get_metatable(-1) {
         UnsafeLuaApi::new_table(s);
@@ -277,6 +277,12 @@ pub trait UserData: Sized {
     /// whether raising error when accessing non-exists property
     const ACCESS_ERROR: bool = true;
 
+    const METATABLE_KEY: MetatableKey = init_wrapper::<Self>;
+
+    fn metatable_key() -> MetatableKey {
+        Self::METATABLE_KEY
+    }
+
     type Trans: UserDataTrans<Self> = Self;
 
     /// add methods
@@ -300,7 +306,7 @@ pub trait UserData: Sized {
     }
 
     /// initialize userdata on the top of lua stack
-    fn init_userdata(s: &State, udata: &LuaUserData) -> Result<()> {
+    fn init_userdata(this: &Self::Trans, s: &State, udata: &LuaUserData) -> Result<()> {
         if Self::INDEX_USERVALUE {
             udata.set_uservalue(s.new_table()?)
         } else {
@@ -311,10 +317,12 @@ pub trait UserData: Sized {
     /* Auxiliary method */
 
     /// get a pointer whose type is lightuserdata as the key in cache table
+    #[inline]
     fn key_to_cache(&self) -> *const () {
         core::ptr::null()
     }
 
+    #[inline]
     fn uservalue_count(&self, s: &State) -> i32 {
         Self::INDEX_USERVALUE as _
     }
@@ -435,10 +443,11 @@ fn init_userdata<T: UserData>(s: &State) -> Result<()> {
     use crate::luaapi::UnsafeLuaApi;
 
     let ud = s.val(s.abs_index(-1));
-    T::init_userdata(s, &ud.try_into()?)
+    let ud: LuaUserData = ud.try_into()?;
+    T::init_userdata(ud.userdata_ref::<T>().expect("convert userdata"), s, &ud)
 }
 
-impl<T: UserData + 'static> ToLua for T {
+impl<T: UserData> ToLua for T {
     const __PUSH: Option<fn(Self, &State) -> Result<()>> = Some(|this, s| s.push_udatauv(this, 0));
 }
 
@@ -460,7 +469,7 @@ impl<T: UserData<Trans = MaybePointer<T>>> ToLua for MaybePtrRef<'_, T> {
                 .expect("new MaybePointer");
             p.0 = this.0;
         }
-        s.set_or_init_metatable(init_wrapper::<T>)?;
+        s.set_or_init_metatable(T::metatable_key())?;
 
         if T::INDEX_USERVALUE {
             s.balance_with(init_userdata::<T>)?;
@@ -493,7 +502,7 @@ impl State {
     /// Register a metatable of UserData into the C registry and return it
     #[inline(always)]
     pub fn register_usertype<U: UserData>(&self) -> Result<Table> {
-        self.get_or_init_metatable(init_wrapper::<U>)?;
+        self.get_or_init_metatable(U::metatable_key())?;
         Ok(self.top_val().try_into().unwrap())
     }
 
@@ -540,7 +549,7 @@ impl State {
             if let Some(init_userdata) = <T::Trans as UserDataTrans<T>>::INIT_USERDATA {
                 init_userdata(self, p);
             }
-            self.set_or_init_metatable(init_wrapper::<T>)?;
+            self.set_or_init_metatable(T::metatable_key())?;
         }
 
         if T::INDEX_USERVALUE {

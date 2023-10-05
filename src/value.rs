@@ -787,14 +787,14 @@ impl<'a> LuaUserData<'a> {
     pub fn userdata_ref<U: UserData>(&self) -> Option<&U::Trans> {
         unsafe {
             self.state
-                .test_userdata_meta::<U::Trans>(self.index, crate::userdata::init_wrapper::<U>)
+                .test_userdata_meta::<U::Trans>(self.index, U::metatable_key())
                 .map(|x| x as _)
         }
     }
 
     pub unsafe fn userdata_ref_mut<U: UserData>(&self) -> Option<&mut U::Trans> {
         self.state
-            .test_userdata_meta::<U::Trans>(self.index, crate::userdata::init_wrapper::<U>)
+            .test_userdata_meta::<U::Trans>(self.index, U::metatable_key())
     }
 }
 
