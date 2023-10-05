@@ -28,7 +28,7 @@ unsafe fn get_weak_meta(s: &State) -> Result<()> {
     s.push_light_userdata(get_weak_meta as usize as *mut ());
     if s.get_table(LUA_REGISTRYINDEX) != Type::Table {
         s.pop(1);
-        s.new_table_with_size(0, 0)?;
+        s.create_table(0, 0);
         s.push("__mode")?;
         s.push("v")?;
         s.set_table(-3);
@@ -775,7 +775,7 @@ impl<'a, U: 'a, R: 'a, W> MethodRegistry<'a, U, R, W> {
     }
 
     #[inline(always)]
-    pub fn as_deref<A: ?Sized>(&self) -> MethodRegistry<'a, &A, U, W>
+    pub fn as_deref<A: ?Sized>(&self) -> MethodRegistry<'a, &'a A, U, W>
     where
         U: Deref<Target = A>,
     {
@@ -783,7 +783,7 @@ impl<'a, U: 'a, R: 'a, W> MethodRegistry<'a, U, R, W> {
     }
 
     #[inline(always)]
-    pub fn as_deref_mut<A: ?Sized>(&self) -> MethodRegistry<'a, &A, R, U>
+    pub fn as_deref_mut<A: ?Sized>(&self) -> MethodRegistry<'a, &'a A, R, U>
     where
         U: DerefMut<Target = A>,
     {
