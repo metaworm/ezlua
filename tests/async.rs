@@ -17,13 +17,8 @@ async fn elua_async() {
 
     let g = lua.global();
     g.set_async_closure("echo_async", echo_async).unwrap();
-    g.set_async_closure("echo_async2", async move |vals: MultiValue| {
-        {
-            // std::println!("vals: {:?}", vals.0);
-            vals
-        }
-    })
-    .unwrap();
+    g.set_async_closure("echo_async_multi", async move |vals: MultiValue| vals)
+        .unwrap();
     g.set(
         "sleep_async",
         lua.async_closure(tokio::time::sleep).unwrap(),
@@ -33,23 +28,42 @@ async fn elua_async() {
     let foo = lua
         .load(
             "
-local a, b, c = echo_async2(...)
-print(a, b, c)
+print('args:', ...)
+local a, b, c = ...
+print('unpacked:', a, b, c)
+a, b, c = echo_async_multi(...)
+print('echo:', a, b, c)
 assert(a == 111 and b == 222 and c == 333)
 a, b = echo_async(11, 22)
 print(a, b)
 assert(a == 11 and b == nil)
 
--- error 'error test'
+if error then error 'error test' end
+
 sleep_async(0.5)
 assert(echo_async(2) == 2)
-assert(echo_async2(3) == 3)
+assert(echo_async_multi(3) == 3)
 return 1, 2
 ",
             None,
         )
         .unwrap();
+    g.set("foo", foo.clone()).unwrap();
 
+    let err = foo
+        .call_async::<_, (i32, i32)>((111, 222, 333))
+        .await
+        .unwrap_err();
+    println!("capture error: {err:?}");
+
+    lua.global().set("error", LuaValue::Nil).unwrap();
+    let foo = lua
+        .global()
+        .get("foo")
+        .unwrap()
+        .as_function()
+        .unwrap()
+        .clone();
     let ret = foo
         .call_async::<_, (i32, i32)>((111, 222, 333))
         .await

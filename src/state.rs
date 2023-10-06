@@ -660,11 +660,17 @@ pub mod unsafe_impl {
             result
         }
 
-        pub(crate) fn statuscode_to_error(&self, ts: i32) -> Result<()> {
+        pub(crate) fn statuscode_to_error_with_traceback(&self, ts: i32, tb: bool) -> Result<()> {
             match ts {
                 LUA_OK => Ok(()),
                 LUA_YIELD => Err(Error::Yield),
                 _ => {
+                    if tb {
+                        self.check_stack(10)?;
+                        unsafe {
+                            luaL_traceback(self.state, self.state, lua_tostring(self.state, -1), 1);
+                        }
+                    }
                     let err = self.to_string_lossy(-1).unwrap_or_default().into_owned();
                     match ts {
                         LUA_ERRRUN | LUA_ERRERR => Err(Error::runtime(err)),
@@ -676,6 +682,10 @@ pub mod unsafe_impl {
                     }
                 }
             }
+        }
+
+        pub(crate) fn statuscode_to_error(&self, ts: i32) -> Result<()> {
+            self.statuscode_to_error_with_traceback(ts, false)
         }
 
         /// Pushes the given value onto the stack.
@@ -723,10 +733,10 @@ pub mod unsafe_impl {
         }
 
         #[track_caller]
-        pub(crate) fn dump_stack(&self) -> String {
+        pub(crate) fn dump_stack(&self, n: usize) -> String {
             let loc = core::panic::Location::caller();
             let mut info = format!("dump_stack from {}:{}\n", loc.file(), loc.line());
-            for i in (1..=self.get_top()).rev().take(6) {
+            for i in (1..=self.get_top()).rev().take(n) {
                 let val = self.val_without_push(i);
                 info += format!("  [{i}] {val:?}\n").as_str();
                 core::mem::forget(val);

@@ -2,9 +2,9 @@ use crate::{
     convert::*,
     coroutine::Coroutine,
     error::{Error, Result},
-    ffi::{self, lua_State},
+    ffi::{self, lua_State, lua_resetthread},
     luaapi::*,
-    state::State,
+    state::{StackGuard, State},
     value::*,
 };
 
@@ -21,6 +21,7 @@ impl Function<'_> {
         self.call_async(args).await
     }
 
+    // TODO: doc: once failed, refs to this state is invalid, and should to be dropped
     #[inline(always)]
     pub async fn call_async<'a, T: ToLuaMulti, R: FromLuaMulti<'a>>(
         &'a self,
@@ -41,8 +42,9 @@ impl Function<'_> {
             .check_stack(args.value_count().unwrap_or(10) as i32 + 2)?;
         self.state.push_value(self.index);
         let count = R::COUNT as i32;
-        self.state
-            .raw_call_async(state, guard.top(), self.state.push_multi(args)? as _, count)
+        let guard = self
+            .state
+            .raw_call_async(state, guard, self.state.push_multi(args)? as _, count)
             .await?;
         let result_base = guard.top() + 1;
         self.state.to_multi_balance(guard, result_base)
@@ -89,7 +91,8 @@ impl Coroutine {
 
         self.push_value(1);
         let count = R::COUNT as i32;
-        self.raw_call_async(state, guard.top(), self.push_multi(args)? as _, count)
+        let guard = self
+            .raw_call_async(state, guard, self.push_multi(args)? as _, count)
             .await?;
         let result_base = guard.top() + 1;
         self.to_multi_balance(guard, result_base)
@@ -117,9 +120,9 @@ impl State {
             let l = self.as_ptr();
             let top = self.get_top();
             drop(self);
-            ffi::lua_yieldk(l, top, 0, Some(continue_func));
+            ffi::lua_yieldk(l, top, 0, None);
         }
-        panic!("co_yieldk called in non-coroutine context; check is_yieldable first")
+        unreachable!("co_yieldk called in non-coroutine context; check is_yieldable first")
     }
 
     /// Maps to `lua_pcallk`.
@@ -246,13 +249,13 @@ impl State {
     }
 
     /// not stack-balance
-    pub(crate) async fn raw_call_async(
-        &self,
+    pub(crate) async fn raw_call_async<'a>(
+        &'a self,
         state: Option<&State>,
-        origin_top: i32,
+        guard: StackGuard<'a>,
         mut nargs: i32,
         nresult: i32,
-    ) -> Result<i32> {
+    ) -> Result<StackGuard<'a>> {
         assert!(nargs >= 0 && nresult >= 0);
 
         loop {
@@ -281,7 +284,8 @@ impl State {
                     self.pop(1);
 
                     // execute the task
-                    nargs = Box::into_pin(task(self, base)).await? as _;
+                    nargs = Box::into_pin(task(&unsafe { Self::from_raw_state(self.state) }, base))
+                        .await? as _;
 
                     // keep the last nargs elements in stack
                     let top = self.get_top();
@@ -291,15 +295,24 @@ impl State {
                         }
                         self.set_top(base + nargs - 1);
                     } else {
-                        debug_assert!(top == base);
+                        debug_assert_eq!(top, base);
                     }
                 }
                 ThreadStatus::Ok => {
                     // at the end, function in coroutine was also poped
-                    return Ok(nresult);
+                    return Ok(guard);
                 }
                 err => {
-                    self.statuscode_to_error(err as _)?;
+                    core::mem::forget(guard);
+                    let err = self
+                        .statuscode_to_error_with_traceback(err as _, true)
+                        .unwrap_err();
+                    // TODO: reset thread graceful
+                    unsafe {
+                        lua_resetthread(self.state);
+                    }
+                    self.drop_slots_greater(self.get_top());
+                    return Err(err);
                 }
             }
         }

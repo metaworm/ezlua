@@ -83,6 +83,8 @@ fn userdata() {
     let test = RcTest(Test { a: 123 }.into());
     s.global().set("uv", test.clone()).unwrap();
     s.global().set("uv1", RcTest(test.0.clone())).unwrap();
+    drop(test);
+
     s.do_string("print(uv, uv1)", None).unwrap();
     s.do_string("assert(uv.ref_count == 1)", None).unwrap();
     s.do_string("assert(uv == uv1)", None).unwrap();
