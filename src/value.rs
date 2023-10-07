@@ -1,13 +1,13 @@
 //! Implementation to lua value
 
 use alloc::{borrow::Cow, vec::Vec};
-use core::ffi::c_void;
+use core::ffi::{c_char, c_void};
 use core::ops;
 
 use crate::{
     convert::{Index, *},
     error::*,
-    ffi::{self, lua_Integer, lua_Number},
+    ffi::{self, lua_Integer, lua_Number, lua_tostring},
     luaapi::{Reference, Type, UnsafeLuaApi},
     marker::RegVal,
     prelude::ArgRef,
@@ -144,6 +144,11 @@ impl<'a> ValRef<'a> {
     #[inline]
     pub fn to_pointer(&self) -> *const c_void {
         self.state.to_pointer(self.index)
+    }
+
+    #[inline]
+    pub fn to_cstr_ptr(&self) -> *const c_char {
+        unsafe { lua_tostring(self.state.state, self.index) }
     }
 
     /// Index number of this value on the lua stack
@@ -775,6 +780,14 @@ impl<'a> LuaUserData<'a> {
                 core::ptr::read(p)
             })
         }
+    }
+
+    pub fn userdata_pointer(&self) -> *mut c_void {
+        self.state.to_userdata(self.index)
+    }
+
+    pub unsafe fn userdata_bytes(&self) -> &[u8] {
+        core::slice::from_raw_parts(self.userdata_pointer().cast::<u8>(), self.raw_len())
     }
 
     pub unsafe fn get_ref_unchecked<U: UserData>(&self) -> Option<&mut U::Trans> {

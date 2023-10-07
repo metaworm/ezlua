@@ -528,6 +528,15 @@ impl State {
         Ok(ud)
     }
 
+    /// Create userdata with custom size
+    #[inline(always)]
+    pub fn new_userdata_untyped(&self, size: usize, uv_count: usize) -> Result<LuaUserData> {
+        use crate::luaapi::UnsafeLuaApi;
+
+        self.new_userdatauv(size, uv_count as _);
+        self.top_val().try_into()
+    }
+
     pub(crate) fn push_udatauv<T: UserData>(&self, data: T, extra: i32) -> Result<()> {
         use crate::luaapi::UnsafeLuaApi;
 

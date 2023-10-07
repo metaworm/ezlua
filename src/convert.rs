@@ -20,6 +20,7 @@ use alloc::{
 };
 use core::{
     cell::RefCell,
+    ffi::CStr,
     fmt::Debug,
     ops::{Deref, DerefMut},
 };
@@ -116,6 +117,11 @@ impl_as_str!(Box<str>);
 impl_as_str!(Cow<'_, str>);
 impl_as_str!(String);
 impl_as_str!(CString);
+
+impl ToLua for &CStr {
+    const __PUSH: Option<fn(Self, &State) -> Result<()>> =
+        Some(|this, s: &State| Ok(s.push_bytes(this.to_bytes())));
+}
 
 impl ToLua for Value<'_> {
     const __PUSH: Option<fn(Self, &State) -> Result<()>> =
