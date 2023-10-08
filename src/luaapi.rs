@@ -1205,13 +1205,13 @@ impl State {
         unsafe { luaL_getmetatable(self.state, c_str.as_ptr()) }
     }
 
+    /// Before call push, stack should be checked by .check_stack()
     #[inline(always)]
     fn push<T: ToLua>(&self, value: T) -> Result<(), Error> {
         match T::__PUSH {
             Some(push) => {
                 #[cfg(debug_assertions)]
                 let top = self.get_top();
-                // self.check_stack(1)?;
                 push(value, self)?;
                 #[cfg(debug_assertions)]
                 assert_eq!(top + 1, self.get_top(), "{}", core::any::type_name::<T>());

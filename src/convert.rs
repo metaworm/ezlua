@@ -233,6 +233,8 @@ impl<'a> FromLua<'a> for Value<'a> {
 }
 
 impl FromLua<'_> for String {
+    const TYPE_NAME: &'static str = "string";
+
     #[inline(always)]
     fn from_lua(s: &State, val: ValRef) -> Result<String> {
         val.to_str()
@@ -242,6 +244,8 @@ impl FromLua<'_> for String {
 }
 
 impl<'a> FromLua<'a> for &'a str {
+    const TYPE_NAME: &'static str = "string";
+
     #[inline(always)]
     fn from_lua(s: &'a State, val: ValRef<'a>) -> Result<&'a str> {
         core::str::from_utf8(val.to_safe_bytes()?).lua_result()
@@ -249,7 +253,8 @@ impl<'a> FromLua<'a> for &'a str {
 }
 
 impl<'a> FromLua<'a> for &'a [u8] {
-    #[inline(always)]
+    const TYPE_NAME: &'static str = "bytes";
+
     fn from_lua(lua: &'a State, val: ValRef<'a>) -> Result<&'a [u8]> {
         val.to_safe_bytes().or_else(|_| unsafe {
             // Treat userdata without metatable as bytes
