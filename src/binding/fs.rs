@@ -68,7 +68,7 @@ pub fn open(lua: &LuaState) -> LuaResult<LuaTable> {
 
     module.set(
         "symlinkattributes",
-        lua.new_closure(|lua, path: &Path, arg2: Option<LuaValue>| {
+        lua.new_closure(|lua, path: &Path, arg2: Option<LuaString>| {
             if !path.exists() {
                 return LuaResult::Ok(LuaValue::Nil);
             }

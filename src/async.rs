@@ -284,8 +284,8 @@ impl State {
                     self.pop(1);
 
                     // execute the task
-                    nargs = Box::into_pin(task(&unsafe { Self::from_raw_state(self.state) }, base))
-                        .await? as _;
+                    let state = unsafe { Self::from_raw_state(self.state) };
+                    nargs = Box::into_pin(task(&state, base)).await? as _;
 
                     // keep the last nargs elements in stack
                     let top = self.get_top();

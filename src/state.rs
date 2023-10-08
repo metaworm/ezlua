@@ -157,7 +157,6 @@ pub mod unsafe_impl {
             }
         }
 
-        #[inline]
         pub fn check_stack(&self, n: i32) -> Result<()> {
             if UnsafeLuaApi::check_stack(self, n) {
                 Ok(())
@@ -286,9 +285,8 @@ pub mod unsafe_impl {
         }
 
         /// Create a new lua value
-        #[inline(always)]
         pub fn new_val<V: ToLua>(&self, val: V) -> Result<ValRef> {
-            self.check_stack(1)?;
+            self.check_stack(2)?;
             self.push(val)?;
             Ok(self.top_val())
         }
@@ -300,9 +298,8 @@ pub mod unsafe_impl {
         }
 
         /// Create a lua table and specify the size
-        #[inline(always)]
         pub fn new_table_with_size(&self, narr: c_int, nrec: c_int) -> Result<Table> {
-            self.check_stack(1)?;
+            self.check_stack(2)?;
             self.create_table(narr, nrec);
             Ok(self.top_val().try_into().expect("table"))
         }
@@ -314,16 +311,15 @@ pub mod unsafe_impl {
         }
 
         /// Create a lua string
-        #[inline]
         pub fn new_string<S: AsRef<[u8]>>(&self, s: S) -> Result<LuaString> {
-            self.check_stack(1)?;
+            self.check_stack(2)?;
             self.push_bytes(s.as_ref());
             Ok(self.top_val().try_into().expect("string"))
         }
 
         /// Load script string or bytecode
         pub fn load<S: AsRef<[u8]>>(&self, s: S, name: Option<&str>) -> Result<Function> {
-            self.check_stack(1)?;
+            self.check_stack(2)?;
             let guard = self.stack_guard();
             self.statuscode_to_error(self.load_buffer(s, name))?;
             core::mem::forget(guard);
