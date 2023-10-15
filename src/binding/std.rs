@@ -392,8 +392,8 @@ pub fn extend_os(s: &LuaState) -> Result<()> {
         .map(|iter| StaticIter::from(iter.filter_map(StdResult::ok)))
     })?;
 
-    os.set_closure("env", std::env::var::<&str>)?;
-    os.set_closure("putenv", |s: &LuaState, var: &str, val: Option<&str>| {
+    os.set_closure("env", |var: &str| std::env::var(var).ok())?;
+    os.set_closure("putenv", |var: &str, val: Option<&str>| {
         if let Some(val) = val {
             std::env::set_var(var, val);
         } else {

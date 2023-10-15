@@ -1,5 +1,7 @@
 //! Helpers to simplify the type conversion between rust and lua
 
+use core::cell::RefCell;
+
 use alloc::string::ToString;
 use alloc::{boxed::Box, vec::Vec};
 
@@ -10,7 +12,8 @@ use crate::{
     luaapi::{Reference, UnsafeLuaApi},
     prelude::{ArcLuaInner, LuaType},
     state::State,
-    value::{ValRef, Value},
+    userdata::UserData,
+    value::{LuaUserData, ValRef, Value},
 };
 
 /// Mark an error result return as `nil, error` rather than raising it
@@ -127,23 +130,58 @@ impl Drop for RegVal {
 }
 
 /// Represents an iterator
-pub struct StaticIter<'a, T>(Box<dyn Iterator<Item = T> + 'a>);
+pub struct StaticIter<'a, T> {
+    pub(crate) iter: Box<dyn Iterator<Item = T> + 'a>,
+}
+
+impl<T: ToLuaMulti> UserData for StaticIter<'_, T> {
+    type Trans = RefCell<Self>;
+
+    fn methods(methods: crate::userdata::UserdataRegistry<Self>) -> Result<()> {
+        methods.add_method_mut("next", |_, this, ()| this.iter.next().ok_or(()))?;
+        methods.add_method_mut("nth", |_, this, i: Option<usize>| {
+            i.and_then(|i| this.iter.nth(i)).ok_or(())
+        })?;
+        methods.set(
+            "last",
+            methods.state().new_closure1(|_, this: LuaUserData| {
+                this.take::<Self>()
+                    .and_then(|this| this.into_inner().iter.last())
+                    .ok_or(())
+            })?,
+        )?;
+        methods.set(
+            "count",
+            methods.state().new_closure1(|_, this: LuaUserData| {
+                this.take::<Self>()
+                    .map(|this| this.into_inner().iter.count())
+                    .ok_or(())
+            })?,
+        )?;
+        methods.add_method_mut("size_hint", |_, this, ()| this.iter.size_hint())?;
+
+        Ok(())
+    }
+
+    fn metatable(mt: crate::userdata::UserdataRegistry<Self>) -> Result<()> {
+        mt.set("__call", mt.get("__method")?.get("next")?)?;
+        mt.set("__index", mt.get("__method")?.get("nth")?)?;
+
+        Ok(())
+    }
+}
 
 impl<T: 'static, I: Iterator<Item = T> + 'static> From<I> for StaticIter<'static, T> {
     fn from(iter: I) -> Self {
-        Self(Box::new(iter))
+        Self {
+            iter: Box::new(iter),
+        }
     }
 }
 
 impl<T: ToLuaMulti + 'static> StaticIter<'static, T> {
     pub fn new(iter: impl Iterator<Item = T> + 'static) -> Self {
-        Self(Box::new(iter))
-    }
-}
-
-impl<T: ToLuaMulti> ToLua for StaticIter<'static, T> {
-    fn to_lua<'a>(self, s: &'a State) -> Result<ValRef<'a>> {
-        unsafe { s.new_iter(self.0, [(); 0]) }.map(Into::into)
+        Self::from(iter)
     }
 }
 

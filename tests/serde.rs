@@ -117,8 +117,9 @@ fn nested() {
         .map(|_| lua.new_val(()).unwrap())
         .collect::<Vec<_>>();
 
-    let g = lua.global();
-    lua.register_module("json", ezlua::binding::json::open, true);
+    // let g = lua.global();
+    lua.register_module("json", ezlua::binding::json::open, true)
+        .unwrap();
     lua.do_string(
         "
     local t1 = {abc = 123}

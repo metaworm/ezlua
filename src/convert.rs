@@ -5,6 +5,7 @@ use crate::{
     ffi::{self, *},
     luaapi::*,
     marker::{IterMap, IterVec, Pushed, Strict},
+    prelude::StaticIter,
     state::State,
     userdata::{UserData, UserDataTrans},
     value::*,
@@ -674,16 +675,13 @@ impl State {
         &self,
         iter: I,
         refs: [REF; C],
-    ) -> Result<Function<'_>> {
-        let iter = RefCell::new(iter);
-        let val = self.bind_closure(
-            move |s| iter.try_borrow_mut().map(|mut iter| iter.next().ok_or(())),
-            C,
-        )?;
-        for (i, v) in refs.into_iter().enumerate() {
-            val.set_upvalue(2 + i as i32, v)?;
-        }
-        Ok(val)
+    ) -> Result<LuaUserData<'_>> {
+        self.new_userdata_with_values(
+            StaticIter {
+                iter: Box::new(iter),
+            },
+            refs,
+        )
     }
 
     /// Like [`State::new_iter`], and you can specify a map function

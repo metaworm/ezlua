@@ -1,6 +1,6 @@
 //! Implementation to userdata binding
 
-use alloc::{format, string::ToString};
+use alloc::format;
 use core::{
     cell::{Ref, RefCell, RefMut},
     ffi::c_int,
@@ -169,7 +169,8 @@ pub fn init_wrapper<U: UserData>(mt: &Table) -> Result<()> {
     debug_assert_eq!(mt.type_of(), Type::Table);
 
     mt.setf(crate::cstr!("__name"), U::TYPE_NAME)?;
-    mt.setf(crate::cstr!("__gc"), U::__gc as CFunction)?;
+    mt.setf(crate::cstr!("__gc"), U::__close as CFunction)?;
+    mt.setf(crate::cstr!("__close"), U::__close as CFunction)?;
 
     if U::RAW_LEN {
         mt.setf(crate::cstr!("__len"), __len as CFunction)?;
@@ -177,6 +178,7 @@ pub fn init_wrapper<U: UserData>(mt: &Table) -> Result<()> {
 
     {
         let setter = mt.state.new_table_with_size(0, 0)?;
+        mt.set("__setter", setter.clone())?;
         mt.state
             .balance_with(|_| U::setter(UserdataRegistry::new(&setter)))?;
         setter.0.ensure_top();
@@ -185,15 +187,10 @@ pub fn init_wrapper<U: UserData>(mt: &Table) -> Result<()> {
     }
 
     {
-        mt.state.push_cclosure(Some(U::__close), 0);
-        mt.state.set_field(mt.index, crate::cstr!("__close"));
-    }
-
-    U::metatable(UserdataRegistry::new(mt))?;
-    {
         let methods = mt.state.new_table_with_size(0, 0)?;
-        mt.set("methods", methods.clone())?;
+        mt.set("__method", methods.clone())?;
         let getter = mt.state.new_table_with_size(0, 0)?;
+        mt.set("__getter", getter.clone())?;
         mt.state.balance_with(|_| {
             U::methods(UserdataRegistry::new(&methods))?;
             U::getter(UserdataRegistry::new(&getter))
@@ -204,6 +201,7 @@ pub fn init_wrapper<U: UserData>(mt: &Table) -> Result<()> {
         mt.state.push_cclosure(Some(U::__index), 3);
         mt.state.set_field(mt.index, crate::cstr!("__index"));
     }
+    U::metatable(UserdataRegistry::new(mt))?;
 
     Ok(())
 }
@@ -272,7 +270,7 @@ pub trait UserData: Sized {
     const RAW_LEN: bool = false;
 
     /// set the cache table is a weaked reference if key_to_cache enabled
-    const WEAK_REF_CACHE: bool = false;
+    const WEAK_REF_CACHE: bool = true;
 
     /// whether raising error when accessing non-exists property
     const ACCESS_ERROR: bool = true;
@@ -300,7 +298,7 @@ pub trait UserData: Sized {
         Ok(())
     }
 
-    /// add else meta methods
+    /// add else meta methods, and you can acquire or overwrite the generated metamethods
     fn metatable(mt: UserdataRegistry<Self>) -> Result<()> {
         Ok(())
     }
@@ -406,30 +404,10 @@ pub trait UserData: Sized {
         return 0;
     }
 
-    unsafe extern "C" fn __gc(l: *mut lua_State) -> c_int {
-        let s = State::from_raw_state(l);
-        let u = LuaUserData::try_from(s.val(1)).ok();
-        if let Some(p) = u.as_ref().and_then(|u| u.userdata_ref_mut::<Self>()) {
-            p.when_drop();
-        }
-        0
-    }
-
     unsafe extern "C" fn __close(l: *mut lua_State) -> c_int {
         let s = State::from_raw_state(l);
         let u = LuaUserData::try_from(s.val(1)).ok();
-        if let Some(p) = u.as_ref().and_then(|u| u.userdata_ref_mut::<Self>()) {
-            p.when_drop();
-        }
-        // erase userdata's metatable
-        u.map(|u| u.remove_metatable());
-        0
-    }
-
-    unsafe extern "C" fn __tostring(l: *mut lua_State) -> c_int
-    where
-        Self: ToString,
-    {
+        u.and_then(|u| u.take::<Self>()).map(drop);
         0
     }
 }
@@ -589,7 +567,6 @@ impl State {
     }
 
     /// Convenience function that calls `to_userdata` and performs a cast.
-
     pub(crate) unsafe fn to_userdata_typed<'a, T>(&'a self, index: Index) -> Option<&'a mut T> {
         use crate::luaapi::UnsafeLuaApi;
 
