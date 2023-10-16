@@ -218,13 +218,14 @@ pub fn init_wrapper<U: UserData>(mt: &Table) -> Result<()> {
             U::methods(UserdataRegistry::new(&methods))?;
             U::getter(UserdataRegistry::new(&getter))
         })?;
+
+        U::metatable(UserdataRegistry::new(mt))?;
         getter.0.ensure_top();
         methods.0.ensure_top();
         mt.get("__index")?.ensure_top();
         mt.state.push_cclosure(Some(U::__index), 3);
         mt.state.set_field(mt.index, crate::cstr!("__index"));
     }
-    U::metatable(UserdataRegistry::new(mt))?;
 
     Ok(())
 }
