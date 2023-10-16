@@ -636,6 +636,12 @@ impl<'l> Table<'l> {
         Ok(())
     }
 
+    pub fn raw_take_ref(&self, r: Reference) -> Result<ValRef<'l>> {
+        let res = self.raw_geti(r.0)?;
+        self.raw_seti(r.0, ())?;
+        Ok(res)
+    }
+
     /// Get the value associated to `key` without metamethod triggers
     #[inline]
     pub fn raw_get<K: ToLua>(&self, key: K) -> Result<ValRef<'l>> {

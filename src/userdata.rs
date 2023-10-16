@@ -1,6 +1,6 @@
 //! Implementation to userdata binding
 
-use alloc::format;
+use alloc::{boxed::Box, format};
 use core::{
     cell::{Ref, RefCell, RefMut},
     ffi::c_int,
@@ -41,10 +41,11 @@ unsafe fn get_weak_meta(s: &State) -> Result<()> {
     Ok(())
 }
 
-pub trait UserDataTrans<T>: Sized {
-    type Read<'a>
+pub trait UserDataTrans<T: UserData>: Sized {
+    type Read<'a>: Deref<Target = T>
     where
-        T: 'a;
+        T: 'a,
+        Self: 'a;
     type Write<'a>
     where
         T: 'a;
@@ -53,26 +54,32 @@ pub trait UserDataTrans<T>: Sized {
 
     fn trans(udata: T) -> Self;
 
-    unsafe fn when_drop(&mut self) {
-        core::ptr::drop_in_place(self);
-    }
+    fn read(&self) -> Self::Read<'_>;
 }
 
-impl<T> UserDataTrans<T> for T {
+impl<T: UserData> UserDataTrans<T> for T {
     type Read<'a> = &'a Self where T: 'a;
     type Write<'a> = &'a mut Self where T: 'a;
 
     fn trans(udata: T) -> Self {
         udata
     }
+
+    fn read(&self) -> Self::Read<'_> {
+        self
+    }
 }
 
-impl<T> UserDataTrans<T> for RefCell<T> {
+impl<T: UserData> UserDataTrans<T> for RefCell<T> {
     type Read<'a> = Ref<'a, T> where T: 'a;
     type Write<'a> = RefMut<'a, T> where T: 'a;
 
     fn trans(udata: T) -> Self {
         RefCell::new(udata)
+    }
+
+    fn read(&self) -> Self::Read<'_> {
+        self.borrow()
     }
 }
 
@@ -128,23 +135,39 @@ impl<'a, T> Deref for MaybePtrRef<'a, T> {
 }
 
 #[repr(C)]
-pub struct MaybePointer<T>(*mut T, T);
+pub struct MaybePointer<T>(*const T, Option<Box<T>>);
 
-impl<T> UserDataTrans<T> for MaybePointer<T> {
+impl<T: UserData> UserDataTrans<T> for MaybePointer<T> {
     type Read<'a> = MaybePtrRef<'a, T> where T: 'a;
     type Write<'a> = () where T: 'a;
 
-    const INIT_USERDATA: Option<fn(&State, &mut Self)> = Some(|_, p| {
-        p.0 = &mut p.1;
-    });
-
     fn trans(udata: T) -> Self {
-        Self(core::ptr::null_mut(), udata)
+        Self(core::ptr::null(), Some(Box::new(udata)))
     }
 
-    unsafe fn when_drop(&mut self) {
-        if self.0 == &mut self.1 {
-            core::ptr::drop_in_place(self.0);
+    fn read(&self) -> Self::Read<'_> {
+        MaybePtrRef(unsafe { self.get_ptr().as_ref().unwrap() })
+    }
+}
+
+impl<T> Drop for MaybePointer<T> {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            core::mem::forget(self.1.take());
+        }
+    }
+}
+
+impl<T> MaybePointer<T> {
+    pub fn get_ptr(&self) -> *const T {
+        if self.0.is_null() {
+            self.1
+                .as_ref()
+                .map(Box::as_ref)
+                .map(|x| x as *const _)
+                .unwrap_or(core::ptr::null())
+        } else {
+            self.0
         }
     }
 }
@@ -157,9 +180,9 @@ impl<'a, T: UserData<Trans = MaybePointer<T>>> FromLua<'a> for MaybePtrRef<'a, T
         u.check_safe_index()?;
         u.userdata_ref::<T>()
             .ok_or("userdata not match")
-            .lua_result()
             // Safety: check_safe_index
-            .map(|x| MaybePtrRef(unsafe { core::mem::transmute(x.0.as_ref()) }))
+            .and_then(|x| unsafe { x.get_ptr().as_ref().ok_or("null ptr") }.map(MaybePtrRef))
+            .lua_result()
     }
 }
 
@@ -407,8 +430,23 @@ pub trait UserData: Sized {
     unsafe extern "C" fn __close(l: *mut lua_State) -> c_int {
         let s = State::from_raw_state(l);
         let u = LuaUserData::try_from(s.val(1)).ok();
-        u.and_then(|u| u.take::<Self>()).map(drop);
-        0
+
+        // take ownship, and remove it from cache table
+        if let Some((this, mt)) = u.and_then(|u| {
+            let mt = u.metatable().ok().flatten();
+            u.take::<Self>().zip(mt)
+        }) {
+            let ptr = this.read().deref().key_to_cache();
+            if !ptr.is_null() {
+                mt.metatable()
+                    .ok()
+                    .flatten()
+                    .and_then(|cache| cache.setp(ptr, ()).ok());
+            }
+            drop(this);
+            return 0;
+        }
+        s.error_string("__close failed")
     }
 }
 
@@ -441,11 +479,15 @@ impl<T: UserData<Trans = MaybePointer<T>>> ToLua for MaybePtrRef<'_, T> {
             use crate::luaapi::UnsafeLuaApi;
 
             let p = s
-                .new_userdatauv(core::mem::size_of::<&T>(), this.uservalue_count(s))
-                .cast::<Self>()
+                .new_userdatauv(
+                    core::mem::size_of::<MaybePointer<T>>(),
+                    this.uservalue_count(s),
+                )
+                .cast::<MaybePointer<T>>()
                 .as_mut()
                 .expect("new MaybePointer");
             p.0 = this.0;
+            core::ptr::write(&mut p.1, None);
         }
         s.set_or_init_metatable(T::metatable_key())?;
 
