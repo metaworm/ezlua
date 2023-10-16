@@ -491,7 +491,7 @@ pub fn extend_string(s: &LuaState) -> Result<()> {
 pub mod thread {
     use super::*;
 
-    use core::cell::{Ref, RefCell, RefMut};
+    use core::cell::{Ref, RefCell};
     #[cfg(not(target_os = "windows"))]
     use std::os::unix::thread::{JoinHandleExt, RawPthread as RawHandle};
     #[cfg(target_os = "windows")]
@@ -502,14 +502,7 @@ pub mod thread {
 
     struct LuaThread {
         handle: RawHandle,
-        join: Option<JoinHandle<()>>,
-    }
-
-    impl LuaThread {
-        #[inline]
-        fn get(&self) -> StdResult<&JoinHandle<()>, &'static str> {
-            self.join.as_ref().ok_or("thread joined")
-        }
+        join: JoinHandle<LuaResult<Reference>>,
     }
 
     impl UserData for LuaThread {
@@ -519,28 +512,29 @@ pub mod thread {
 
         fn getter(fields: UserdataRegistry<Self>) -> Result<()> {
             fields.set_closure("handle", |this: Ref<Self>| this.handle as usize)?;
-            fields.add_method("name", |s, this, ()| {
-                s.new_val(this.get().map(|j| j.thread().name()).lua_result()?)
-            })?;
+            fields.add_method("name", |s, this, ()| this.join.thread().name())?;
             fields.set_closure("id", |this: Ref<Self>| {
-                this.get().map(|j| j.thread().id().as_u64().get())
+                this.join.thread().id().as_u64().get()
             })?;
 
             Ok(())
         }
 
         fn methods(mt: UserdataRegistry<Self>) -> Result<()> {
-            mt.set_closure("join", |mut this: RefMut<Self>| {
-                this.join
-                    .take()
-                    .ok_or("thread joined")
-                    .lua_result()?
-                    .join()
-                    .map_err(LuaError::runtime_debug)
-            })?;
-            mt.set_closure("unpark", |this: Ref<Self>| {
-                this.get().map(|j| j.thread().unpark())
-            })?;
+            mt.set(
+                "join",
+                mt.state().new_closure1(|lua, this: LuaUserData| {
+                    let res = this
+                        .take::<Self>()
+                        .unwrap()
+                        .into_inner()
+                        .join
+                        .join()
+                        .lua_result()??;
+                    lua.registry().raw_take_ref(res)
+                })?,
+            )?;
+            mt.set_closure("unpark", |this: Ref<Self>| this.join.thread().unpark())?;
 
             Ok(())
         }
@@ -587,10 +581,19 @@ pub mod thread {
         }
     }
 
-    #[derive(Default)]
+    #[derive(Debug)]
     struct LuaCondVar {
-        lock: Mutex<i32>,
+        lock: Mutex<Reference>,
         cvar: Condvar,
+    }
+
+    impl Default for LuaCondVar {
+        fn default() -> Self {
+            Self {
+                lock: Reference(0).into(),
+                cvar: Default::default(),
+            }
+        }
     }
 
     impl UserData for LuaCondVar {
@@ -614,7 +617,7 @@ pub mod thread {
             let mut i = self.lock.lock().lua_result()?;
             let creg = s.registry();
             creg.unreference((*i).into());
-            *i = creg.reference(val)?.0;
+            *i = creg.reference(val)?;
 
             Ok(())
         }
@@ -629,12 +632,12 @@ pub mod thread {
                 if r.timed_out() {
                     return s.new_val(());
                 }
-                s.registry().raw_geti((*i) as i64)
+                s.registry().raw_take_ref(*i)
             } else {
                 let i = cvar
                     .wait(lock.lock().lua_result()?)
                     .map_err(LuaError::runtime_debug)?;
-                s.registry().raw_geti((*i) as i64)
+                s.registry().raw_take_ref(*i)
             }
         }
     }
@@ -645,16 +648,10 @@ pub mod thread {
             thread::Builder::new()
                 .name(name.unwrap_or("<lua>").into())
                 .spawn(move || {
-                    if let Err(err) = routine.val(1).pcall::<_, ()>(()) {
-                        call_print(
-                            &routine,
-                            &std::format!(
-                                "<thread#{} \"{}\"> {err:?}",
-                                thread::current().id().as_u64().get(),
-                                thread::current().name().unwrap_or_default(),
-                            ),
-                        );
-                    }
+                    routine
+                        .val(1)
+                        .pcall::<_, ValRef>(())
+                        .and_then(|res| routine.registry().reference(res))
                 })
                 .map(|join| {
                     #[cfg(target_os = "windows")]
@@ -662,10 +659,7 @@ pub mod thread {
                     #[cfg(not(target_os = "windows"))]
                     let handle = join.as_pthread_t();
 
-                    LuaThread {
-                        join: Some(join),
-                        handle,
-                    }
+                    LuaThread { join, handle }
                 })
         })?;
         t.set_closure("sleep", |time: u64| {
@@ -714,17 +708,4 @@ pub fn init_global(s: &LuaState) -> Result<()> {
     g.set_closure("writefile", std::fs::write::<&std::path::Path, &[u8]>)?;
 
     Ok(())
-}
-
-pub fn call_print(s: &LuaState, err: &str) {
-    let g = s.global();
-    let error = g.getf(crate::cstr!("__ezlua_error"));
-    let print = g.getf(crate::cstr!("print"));
-    if error.type_of() == LuaType::Function {
-        error.pcall_void(err).ok();
-    } else if print.type_of() != LuaType::Function {
-        print.pcall_void(err).ok();
-    } else {
-        std::eprintln!("[callback error] {}", err);
-    }
 }

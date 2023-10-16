@@ -129,9 +129,9 @@ async fn async_stack_balance() {
 #[tokio::test]
 async fn async_error_balance() {
     let lua = Lua::with_open_libs();
-    // let _occupation = (0..20)
-    //     .map(|_| lua.new_val(()).unwrap())
-    //     .collect::<Vec<_>>();
+    let _occupation = (0..20)
+        .map(|_| lua.new_val(()).unwrap())
+        .collect::<Vec<_>>();
 
     let foo = lua.load("error('error')", None).unwrap();
 
