@@ -1,4 +1,10 @@
 
+## v0.4.0
+
+- Bugfix for async function and userdata bindings
+- Improve bindings to rust thread
+- Change binding for rust iterator to userdata instead of closure
+
 ## v0.3.2
 
 - Added `compat` feature, impls a simple compatibility layer to mlua/rlua
