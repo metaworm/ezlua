@@ -84,7 +84,7 @@ macro_rules! impl_fromlua_as_serde {
             fn from_lua(
                 lua: &$crate::prelude::LuaState,
                 val: $crate::prelude::ValRef,
-            ) -> Option<Self> {
+            ) -> $crate::prelude::LuaResult<Self> {
                 <$crate::serde::SerdeValue<Self> as $crate::prelude::FromLua>::from_lua(lua, val)
                     .map(|s| s.0)
             }

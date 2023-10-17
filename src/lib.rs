@@ -5,7 +5,8 @@
     macro_metavar_expr,
     const_type_name,
     file_set_times,
-    associated_type_defaults
+    associated_type_defaults,
+    async_closure
 )]
 #![allow(dead_code, unused_variables)]
 

@@ -491,12 +491,12 @@ pub fn extend_string(s: &LuaState) -> Result<()> {
 pub mod thread {
     use super::*;
 
-    use core::cell::{Ref, RefCell};
+    use core::cell::RefCell;
     #[cfg(not(target_os = "windows"))]
     use std::os::unix::thread::{JoinHandleExt, RawPthread as RawHandle};
     #[cfg(target_os = "windows")]
     use std::os::windows::io::{AsRawHandle, RawHandle};
-    use std::sync::*;
+    use std::sync::{mpsc::*, *};
     use std::thread::{self, JoinHandle};
     use std::time::Duration;
 
@@ -508,14 +508,10 @@ pub mod thread {
     impl UserData for LuaThread {
         const TYPE_NAME: &'static str = "LLuaThread";
 
-        type Trans = RefCell<Self>;
-
         fn getter(fields: UserdataRegistry<Self>) -> Result<()> {
-            fields.set_closure("handle", |this: Ref<Self>| this.handle as usize)?;
+            fields.set_closure("handle", |this: &Self| this.handle as usize)?;
             fields.add_method("name", |s, this, ()| this.join.thread().name())?;
-            fields.set_closure("id", |this: Ref<Self>| {
-                this.join.thread().id().as_u64().get()
-            })?;
+            fields.set_closure("id", |this: &Self| this.join.thread().id().as_u64().get())?;
 
             Ok(())
         }
@@ -523,18 +519,13 @@ pub mod thread {
         fn methods(mt: UserdataRegistry<Self>) -> Result<()> {
             mt.set(
                 "join",
-                mt.state().new_closure1(|lua, this: LuaUserData| {
-                    let res = this
-                        .take::<Self>()
-                        .unwrap()
-                        .into_inner()
-                        .join
-                        .join()
-                        .lua_result()??;
-                    lua.registry().raw_take_ref(res)
-                })?,
+                mt.state()
+                    .new_closure1(|lua, OwnedUserdata::<Self>(this)| {
+                        let res = this.join.join().lua_result()??;
+                        lua.registry().take_reference(res)
+                    })?,
             )?;
-            mt.set_closure("unpark", |this: Ref<Self>| this.join.thread().unpark())?;
+            mt.set_closure("unpark", |this: &Self| this.join.thread().unpark())?;
 
             Ok(())
         }
@@ -632,18 +623,64 @@ pub mod thread {
                 if r.timed_out() {
                     return s.new_val(());
                 }
-                s.registry().raw_take_ref(*i)
+                s.registry().take_reference(*i)
             } else {
                 let i = cvar
                     .wait(lock.lock().lua_result()?)
                     .map_err(LuaError::runtime_debug)?;
-                s.registry().raw_take_ref(*i)
+                s.registry().take_reference(*i)
             }
         }
     }
 
-    pub fn init(s: &LuaState) -> Result<LuaTable> {
-        let t = s.new_table_with_size(0, 4)?;
+    impl UserData for Sender<Reference> {
+        const TYPE_NAME: &'static str = "Sender";
+
+        fn methods(methods: UserdataRegistry<Self>) -> LuaResult<()> {
+            methods.set_closure("send", |lua: &LuaState, this: &Self, val: ValRef| {
+                this.send(lua.registry().reference(val)?).lua_result()
+            })?;
+
+            Ok(())
+        }
+    }
+
+    impl UserData for Receiver<Reference> {
+        const TYPE_NAME: &'static str = "Receiver";
+        type Trans = RefCell<Self>;
+
+        fn methods(methods: UserdataRegistry<Self>) -> LuaResult<()> {
+            methods.add_method_mut("recv", |lua: &LuaState, this, ()| {
+                this.recv()
+                    .lua_result()
+                    .and_then(|r| lua.registry().take_reference(r))
+            })?;
+            methods.add_method_mut("try_recv", |lua: &LuaState, this, ()| {
+                match this.try_recv() {
+                    Err(TryRecvError::Empty) => lua.new_val(()),
+                    err => err
+                        .lua_result()
+                        .and_then(|r| lua.registry().take_reference(r)),
+                }
+            })?;
+            methods.add_method_mut("recv_timeout", |lua: &LuaState, this, tm| {
+                this.recv_timeout(tm)
+                    .lua_result()
+                    .and_then(|r| lua.registry().take_reference(r))
+            })?;
+
+            Ok(())
+        }
+
+        fn metatable(mt: UserdataRegistry<Self>) -> LuaResult<()> {
+            mt.set("__call", mt.get("__method")?.get("recv")?)?;
+
+            Ok(())
+        }
+    }
+
+    pub fn init(lua: &LuaState) -> Result<LuaTable> {
+        let t = lua.new_table_with_size(0, 4)?;
         t.set_closure("spawn", |routine: Coroutine, name: Option<&str>| {
             thread::Builder::new()
                 .name(name.unwrap_or("<lua>").into())
@@ -672,8 +709,12 @@ pub mod thread {
         t.set_closure("condvar", LuaCondVar::default)?;
         t.set(
             "name",
-            s.new_closure0(|s| s.new_val(thread::current().name()))?,
+            lua.new_closure0(|s| s.new_val(thread::current().name()))?,
         )?;
+
+        let sync = lua.new_table()?;
+        sync.set_closure("channel", channel::<Reference>)?;
+        t.set("sync", sync)?;
 
         Ok(t)
     }

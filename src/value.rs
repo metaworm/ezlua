@@ -636,9 +636,9 @@ impl<'l> Table<'l> {
         Ok(())
     }
 
-    pub fn raw_take_ref(&self, r: Reference) -> Result<ValRef<'l>> {
+    pub fn take_reference(&self, r: Reference) -> Result<ValRef<'l>> {
         let res = self.raw_geti(r.0)?;
-        self.raw_seti(r.0, ())?;
+        self.unreference(r);
         Ok(res)
     }
 

@@ -12,6 +12,8 @@ pub mod log;
 pub mod regex;
 #[cfg(feature = "std")]
 pub mod std;
+#[cfg(feature = "tokio")]
+pub mod tokio;
 
 pub fn init_global(s: &State) -> Result<()> {
     #[cfg(feature = "std")]

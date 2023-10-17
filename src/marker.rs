@@ -10,7 +10,7 @@ use crate::{
     error::{Error, Result},
     ffi,
     luaapi::{Reference, UnsafeLuaApi},
-    prelude::{ArcLuaInner, LuaType},
+    prelude::{ArcLuaInner, LuaType, ToLuaResult},
     state::State,
     userdata::UserData,
     value::{LuaUserData, ValRef, Value},
@@ -288,5 +288,20 @@ impl<'a, T: FromLua<'a> + 'a> FromLua<'a> for MultiRet<T> {
             result.push(T::from_lua(lua, lua.val(i))?);
         }
         Ok(Self(result))
+    }
+}
+
+/// Represents an userdata which ownedship is taken
+pub struct OwnedUserdata<T>(pub T);
+
+impl<'a, T: UserData<Trans = T>> FromLua<'a> for OwnedUserdata<T> {
+    const TYPE_NAME: &'static str = T::TYPE_NAME;
+
+    fn from_lua(lua: &'a State, val: ValRef<'a>) -> Result<OwnedUserdata<T>> {
+        let u = LuaUserData::try_from(val)?;
+        u.take::<T>()
+            .ok_or("userdata not match")
+            .lua_result()
+            .map(OwnedUserdata)
     }
 }
