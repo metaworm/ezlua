@@ -13,7 +13,10 @@ use core::{ffi::c_int, future::Future};
 
 pub type TaskOutput<'a> = Box<dyn Future<Output = Result<usize>> + Send + 'a>;
 
-struct TaskWrapper<'a>(Option<Box<dyn FnOnce(&'a State, i32) -> TaskOutput<'a> + Send + 'a>>);
+struct TaskWrapper<'a> {
+    task: Option<Box<dyn FnOnce(&'a State, i32) -> TaskOutput<'a> + Send + 'a>>,
+    error: Option<Error>,
+}
 
 impl Function<'_> {
     #[inline(always)]
@@ -105,14 +108,25 @@ impl State {
         self,
         callback: F,
     ) -> ! {
-        self.push_userdatauv(TaskWrapper(Some(Box::new(callback))), 0)
-            .expect("push task wrapper");
+        let pudata = self
+            .push_userdatauv(
+                TaskWrapper {
+                    task: Some(Box::new(callback)),
+                    error: None,
+                },
+                0,
+            )
+            .expect("push task wrapper") as *mut _;
 
         unsafe extern "C" fn continue_func(
             l: *mut lua_State,
             status: c_int,
             ctx: ffi::lua_KContext,
         ) -> c_int {
+            let taskwrap = (ctx as *mut TaskWrapper).as_mut().expect("get taskwrapper");
+            if let Some(err) = taskwrap.error.take() {
+                State::from_raw_state(l).raise_error(err);
+            }
             ffi::lua_gettop(l)
         }
 
@@ -120,7 +134,7 @@ impl State {
             let l = self.as_ptr();
             let top = self.get_top();
             drop(self);
-            ffi::lua_yieldk(l, top, 0, None);
+            ffi::lua_yieldk(l, top, pudata as _, Some(continue_func));
         }
         unreachable!("co_yieldk called in non-coroutine context; check is_yieldable first")
     }
@@ -268,13 +282,9 @@ impl State {
                 ThreadStatus::Yield => {
                     debug_assert!(nres > 0);
 
-                    let task = unsafe {
+                    let taskwrap = unsafe {
                         self.to_userdata_typed::<TaskWrapper>(-1)
                             .ok_or("coroutine task expect a TaskWrapper")
-                            .map_err(Error::runtime)?
-                            .0
-                            .take()
-                            .ok_or("task is already moved")
                             .map_err(Error::runtime)?
                     };
 
@@ -284,8 +294,18 @@ impl State {
                     self.pop(1);
 
                     // execute the task
+                    let task = taskwrap
+                        .task
+                        .take()
+                        .ok_or("task is already moved")
+                        .map_err(Error::runtime)?;
                     let state = unsafe { Self::from_raw_state(self.state) };
-                    nargs = Box::into_pin(task(&state, base)).await? as _;
+                    nargs = Box::into_pin(task(&state, base))
+                        .await
+                        .unwrap_or_else(|err| {
+                            taskwrap.error.replace(err);
+                            0
+                        }) as _;
 
                     // keep the last nargs elements in stack
                     let top = self.get_top();

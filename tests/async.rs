@@ -1,5 +1,7 @@
 #![feature(async_closure)]
 
+use std::time::Duration;
+
 use ezlua::prelude::*;
 
 #[tokio::test]
@@ -146,6 +148,17 @@ async fn async_error_balance() {
             assert_eq!(lua.stack_top(), stack_top.unwrap());
         }
     }
+
+    lua.global()
+        .set_async_closure("asyncerror", async move |err: &str| {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            Err::<(), _>(err).lua_result()
+        })
+        .unwrap();
+    let foo = lua
+        .load("print(pcall(function() asyncerror('error') end))", None)
+        .unwrap();
+    foo.call_async_void((1, 2, 3)).await.unwrap();
 
     // TODO: more error case
 }
