@@ -1,7 +1,7 @@
 
 ## v0.4.1
 
-- Added tokio bindings
+- Added [tokio bindings](https://ezlua-types.vercel.app/modules/tokio.html)
 - Bugfix:
   - failed to catch error when calling async function with pcall
   - `__index` is overwritten when init userdata's metatable 

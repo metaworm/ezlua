@@ -21,7 +21,7 @@ Ergonomic, efficient and Zero-cost rust bindings to Lua5.4
 - Ergonomic binding for functions and userdata methods
 - Ergonomic stack values operation, you don't need to pay attention to the stack details
 - Efficient: no auxiliary stack, support reference type conversion
-- Builtin bindings to most commonly used rust std functions and types
+- [Builtin bindings](https://ezlua-types.vercel.app/) to most commonly used rust std functions and types
 - Mutilple thread support
 - [ ] nostd support
 
@@ -45,13 +45,14 @@ See [builtin bindings](https://github.com/metaworm/ezlua/tree/master/src/binding
 * `std`: enable the builtin bindings for rust std functions and types
 * `json`: enable the builtin bindings for [serde_json] crate
 * `regex`: enable the builtin bindings for [regex] crate
+* `tokio`: enable the builtin bindings for [tokio] crate
 
 ### Basic
 
 First, add ezlua to your dependencies in Cargo.toml
 ```toml
 [dependencies]
-ezlua = { version = '0.3' }
+ezlua = { version = '0.4' }
 ```
 
 Then, use ezlua in rust, the code framework like this
@@ -155,7 +156,7 @@ impl ToLua for Config {
 // You can use impl_fromlua_as_serde macro to simply this after version v0.3.1
 // ezlua::impl_fromlua_as_serde!(Config);
 impl FromLua<'_> for Config {
-    fn from_lua(lua: &LuaState, val: ValRef) -> Option<Self> {
+    fn from_lua(lua: &LuaState, val: ValRef) -> LuaResult<Self> {
         SerdeValue::<Self>::from_lua(lua, val).map(|s| s.0)
     }
 }

@@ -131,3 +131,25 @@ fn nested() {
     )
     .unwrap_err();
 }
+
+#[test]
+fn serde_enum() {
+    #[derive(Debug, Serialize, Deserialize, PartialEq)]
+    enum Enum {
+        Empty,
+        Int(isize),
+        Float(f64),
+        Vec(Vec<i32>),
+    }
+
+    let lua = Lua::with_open_libs();
+    // let empty = lua.new_val(SerdeValue(Enum::Empty)).unwrap();
+    // assert_eq!(empty.deserialize::<Enum>().unwrap(), Enum::Empty);
+
+    let int = lua.new_val(SerdeValue(Enum::Int(123))).unwrap();
+    println!("{:?}", int.deserialize::<serde_json::Value>());
+    assert_eq!(int.deserialize::<Enum>().unwrap(), Enum::Int(123));
+
+    let flt = lua.new_val(SerdeValue(Enum::Float(123.0))).unwrap();
+    assert_eq!(flt.deserialize::<Enum>().unwrap(), Enum::Float(123.0));
+}

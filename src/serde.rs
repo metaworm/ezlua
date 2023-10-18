@@ -9,9 +9,10 @@ use crate::{
 };
 use alloc::{
     fmt::Display,
+    format,
     string::{String, ToString},
 };
-use serde::de::DeserializeOwned;
+use serde::de::{DeserializeOwned, EnumAccess, IntoDeserializer, VariantAccess};
 #[rustfmt::skip]
 use ::serde::{
     de::{Deserialize, DeserializeSeed, Deserializer, Error as DeErr, MapAccess, SeqAccess, Visitor},
@@ -900,7 +901,103 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
     where
         V: Visitor<'de>,
     {
-        unimplemented!()
+        struct EnumDeser<'a> {
+            variant: String,
+            value: Option<ValRef<'a>>,
+        }
+
+        impl<'lua> EnumAccess<'lua> for EnumDeser<'lua> {
+            type Error = DesErr;
+            type Variant = VariantDeser<'lua>;
+
+            fn variant_seed<T>(self, seed: T) -> Result<(T::Value, Self::Variant), Self::Error>
+            where
+                T: DeserializeSeed<'lua>,
+            {
+                let variant = self.variant.into_deserializer();
+                let variant_access = VariantDeser { value: self.value };
+                seed.deserialize(variant).map(|v| (v, variant_access))
+            }
+        }
+
+        struct VariantDeser<'a> {
+            value: Option<ValRef<'a>>,
+        }
+
+        impl<'de> VariantAccess<'de> for VariantDeser<'de> {
+            type Error = DesErr;
+
+            fn unit_variant(self) -> Result<(), Self::Error> {
+                match self.value {
+                    Some(_) => Err(DesErr::custom(format!("unit_variant"))),
+                    None => Ok(()),
+                }
+            }
+
+            fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Self::Error>
+            where
+                T: DeserializeSeed<'de>,
+            {
+                match self.value {
+                    Some(value) => {
+                        // Safety: val is also referenced by the self table
+                        let val: &'de ValRef = unsafe { core::mem::transmute(&value) };
+                        seed.deserialize(val)
+                    }
+                    None => Err(DesErr::custom(format!("newtype variant"))),
+                }
+            }
+
+            fn tuple_variant<V>(self, _len: usize, visitor: V) -> Result<V::Value, Self::Error>
+            where
+                V: Visitor<'de>,
+            {
+                match self.value {
+                    Some(value) => {
+                        // Safety: val is also referenced by the self table
+                        let val: &'de ValRef = unsafe { core::mem::transmute(&value) };
+                        serde::Deserializer::deserialize_seq(val, visitor)
+                    }
+                    None => Err(DesErr::custom(format!("tuple variant"))),
+                }
+            }
+
+            fn struct_variant<V>(
+                self,
+                _fields: &'static [&'static str],
+                visitor: V,
+            ) -> Result<V::Value, Self::Error>
+            where
+                V: Visitor<'de>,
+            {
+                match self.value {
+                    Some(value) => {
+                        // Safety: val is also referenced by the self table
+                        let val: &'de ValRef = unsafe { core::mem::transmute(&value) };
+                        serde::Deserializer::deserialize_map(val, visitor)
+                    }
+                    None => Err(DesErr::custom(format!("struct variant"))),
+                }
+            }
+        }
+
+        visitor.visit_enum(if let Some(s) = self.to_str() {
+            EnumDeser {
+                variant: s.into(),
+                value: None,
+            }
+        } else if let Some((k, v)) = self
+            .as_table()
+            .and_then(|t| t.iter().ok()?.next())
+            .and_then(|(k, v)| String::from_lua(k.state(), k).ok().map(|k| (k, v)))
+        {
+            EnumDeser {
+                variant: k,
+                value: Some(v),
+            }
+        } else {
+            return Err(DesErr::ExpectedEnum);
+        })
     }
 
     /// Hint that the `Deserialize` type is expecting the name of a struct
