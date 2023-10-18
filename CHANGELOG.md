@@ -1,4 +1,11 @@
 
+## v0.4.1
+
+- Added tokio bindings
+- Bugfix:
+  - failed to catch error when calling async function with pcall
+  - `__index` is overwritten when init userdata's metatable 
+
 ## v0.4.0
 
 - Bugfix for async function and userdata bindings
