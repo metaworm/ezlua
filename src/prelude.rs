@@ -12,3 +12,6 @@ pub use crate::value::{
     Function as LuaFunction, LuaString, LuaThread, LuaUserData, Table as LuaTable, ValRef,
     Value as LuaValue,
 };
+
+#[cfg(all(feature = "std", feature = "serde"))]
+pub use crate::serde::{SerdeOwnedValue, SerdeValue};

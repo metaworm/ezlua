@@ -90,6 +90,20 @@ macro_rules! impl_fromlua_as_serde {
             }
         }
     };
+
+    (owned $t:ty) => {
+        impl $crate::prelude::FromLua<'_> for $t {
+            fn from_lua(
+                lua: &$crate::prelude::LuaState,
+                val: $crate::prelude::ValRef,
+            ) -> $crate::prelude::LuaResult<Self> {
+                <$crate::serde::SerdeOwnedValue<Self> as $crate::prelude::FromLua>::from_lua(
+                    lua, val,
+                )
+                .map(|s| s.0)
+            }
+        }
+    };
 }
 
 /// Helper macro to `impl ToLuaMulti` for types which can convert to another type implemented ToLuaMulti easily

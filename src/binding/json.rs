@@ -1,7 +1,7 @@
 use crate::{impl_fromlua_as_serde, impl_tolua_as_serde, prelude::*};
 
 impl_tolua_as_serde!(serde_json::Value);
-impl_fromlua_as_serde!(serde_json::Value);
+impl_fromlua_as_serde!(owned serde_json::Value);
 
 pub fn open(s: &LuaState) -> LuaResult<LuaTable> {
     let m = s.new_table()?;
