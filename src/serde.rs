@@ -196,7 +196,12 @@ impl<'a> SerializeTupleStruct for LuaTableSerializer<'a> {
     where
         T: Serialize,
     {
-        SerializeSeq::serialize_element(self, value)
+        self.1
+            .as_ref()
+            .and_then(ValRef::as_table)
+            .ok_or("variant value not set")
+            .lua_result()?
+            .push(SerdeValue(value))
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
@@ -268,8 +273,10 @@ impl<'a> SerializeMap for LuaTableSerializer<'a> {
     where
         T: Serialize,
     {
-        self.0
-            .raw_set(self.1.take().expect("no key"), SerdeValue(value))
+        self.0.raw_set(
+            self.1.take().ok_or("no key").lua_result()?,
+            SerdeValue(value),
+        )
     }
 
     fn serialize_entry<K: ?Sized, V: ?Sized>(
@@ -301,7 +308,12 @@ impl<'a> SerializeStructVariant for LuaTableSerializer<'a> {
     where
         T: Serialize,
     {
-        SerializeStruct::serialize_field(self, key, value)
+        self.1
+            .as_ref()
+            .and_then(ValRef::as_table)
+            .ok_or("variant value not set")
+            .lua_result()?
+            .raw_set(key, SerdeValue(value))
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
@@ -382,17 +394,6 @@ impl<'a> Serializer for LuaSerializer<'a> {
         SerializeStruct::serialize_field(&mut s, "__unit_struct", name)?;
         SerializeStruct::end(s)
     }
-    fn serialize_unit_variant(
-        self,
-        name: &'static str,
-        variant_index: u32,
-        variant: &'static str,
-    ) -> Result<Self::Ok, Self::Error> {
-        let mut s = LuaTableSerializer::begin(self.0, 1)?;
-        s.serialize_entry(&0, &variant_index)?;
-        s.serialize_entry(variant, &true)?;
-        SerializeMap::end(s)
-    }
 
     fn serialize_newtype_struct<T: ?Sized>(
         self,
@@ -405,6 +406,21 @@ impl<'a> Serializer for LuaSerializer<'a> {
         value.serialize(self)
     }
 
+    fn serialize_unit_variant(
+        self,
+        name: &'static str,
+        variant_index: u32,
+        variant: &'static str,
+    ) -> Result<Self::Ok, Self::Error> {
+        let t = self.0.new_table_with_size(0, 4)?;
+        t.raw_set(-1, variant_index)?;
+        // use [0] store variant name
+        t.raw_set(0, variant)?;
+        // use false instead of nil for unit variant to prevent the variant key disappear when deserializing
+        t.raw_set(variant, false)?;
+        Ok(t.into())
+    }
+
     fn serialize_newtype_variant<T: ?Sized>(
         self,
         name: &'static str,
@@ -415,11 +431,46 @@ impl<'a> Serializer for LuaSerializer<'a> {
     where
         T: Serialize,
     {
+        let t = self.0.new_table_with_size(0, 4)?;
+        t.raw_set(-1, variant_index)?;
+        // use [0] store variant name
+        t.raw_set(0, variant)?;
+        t.raw_set(variant, SerdeValue(value))?;
+        Ok(t.into())
+    }
+
+    fn serialize_tuple_variant(
+        self,
+        _name: &'static str,
+        variant_index: u32,
+        variant: &'static str,
+        len: usize,
+    ) -> Result<Self::SerializeTupleVariant, Self::Error> {
+        let mut s = LuaTableSerializer::begin_array(self.0, len)?;
+        s.0.raw_set(-1, variant_index)?;
+        // use [0] store variant name
+        s.0.raw_set(0, variant)?;
+        let t = self.0.new_table()?;
+        s.1.replace(t.0.clone());
+        s.0.raw_set(variant, t)?;
+        Ok(s)
+    }
+
+    fn serialize_struct_variant(
+        self,
+        name: &'static str,
+        variant_index: u32,
+        variant: &'static str,
+        len: usize,
+    ) -> Result<Self::SerializeStructVariant, Self::Error> {
         let mut s = LuaTableSerializer::begin(self.0, 1)?;
-        s.serialize_entry(&0, &variant_index)?;
-        s.serialize_entry("__tag", variant)?;
-        s.serialize_entry(variant, value)?;
-        SerializeMap::end(s)
+        s.0.raw_set(-1, variant_index)?;
+        // use [0] store variant name
+        s.0.raw_set(0, variant)?;
+        let t = self.0.new_table()?;
+        s.1.replace(t.0.clone());
+        s.0.raw_set(variant, t)?;
+        Ok(s)
     }
 
     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
@@ -438,19 +489,6 @@ impl<'a> Serializer for LuaSerializer<'a> {
         Ok(LuaTableSerializer::begin_array(self.0, len)?)
     }
 
-    fn serialize_tuple_variant(
-        self,
-        _name: &'static str,
-        variant_index: u32,
-        variant: &'static str,
-        len: usize,
-    ) -> Result<Self::SerializeTupleVariant, Self::Error> {
-        let mut s = LuaTableSerializer::begin_array(self.0, len)?;
-        s.serialize_entry(&0, &variant_index)?;
-        s.serialize_entry("__tag", variant)?;
-        Ok(s)
-    }
-
     fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
         Ok(LuaTableSerializer::begin(self.0, len.unwrap_or(0))?)
     }
@@ -461,19 +499,6 @@ impl<'a> Serializer for LuaSerializer<'a> {
         len: usize,
     ) -> Result<Self::SerializeStruct, Self::Error> {
         Ok(LuaTableSerializer::begin(self.0, len)?)
-    }
-
-    fn serialize_struct_variant(
-        self,
-        name: &'static str,
-        variant_index: u32,
-        variant: &'static str,
-        len: usize,
-    ) -> Result<Self::SerializeStructVariant, Self::Error> {
-        let mut s = LuaTableSerializer::begin(self.0, 1)?;
-        s.serialize_entry(&0, &variant_index)?;
-        s.serialize_entry("__tag", variant)?;
-        Ok(s)
     }
 
     // TODO:
@@ -928,10 +953,12 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
             type Error = DesErr;
 
             fn unit_variant(self) -> Result<(), Self::Error> {
-                match self.value {
-                    Some(_) => Err(DesErr::custom(format!("unit_variant"))),
-                    None => Ok(()),
-                }
+                // unit_variant can be any type
+                // match self.value {
+                //     Some(_) => Err(DesErr::custom(format!("unit_variant"))),
+                //     None => Ok(()),
+                // }
+                Ok(())
             }
 
             fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Self::Error>
@@ -988,7 +1015,7 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
             }
         } else if let Some((k, v)) = self
             .as_table()
-            .and_then(|t| t.iter().ok()?.next())
+            .and_then(|t| t.iter().ok()?.find(|(k, _)| k.type_of() == Type::String))
             .and_then(|(k, v)| String::from_lua(k.state(), k).ok().map(|k| (k, v)))
         {
             EnumDeser {

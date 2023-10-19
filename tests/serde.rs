@@ -136,20 +136,37 @@ fn nested() {
 fn serde_enum() {
     #[derive(Debug, Serialize, Deserialize, PartialEq)]
     enum Enum {
+        Null,
         Empty,
         Int(isize),
         Float(f64),
         Vec(Vec<i32>),
+        NewTuple(i32, String),
+        NewStruct { abc: i32, def: String },
     }
 
     let lua = Lua::with_open_libs();
-    // let empty = lua.new_val(SerdeValue(Enum::Empty)).unwrap();
-    // assert_eq!(empty.deserialize::<Enum>().unwrap(), Enum::Empty);
+    let empty = lua.new_val(SerdeValue(Enum::Empty)).unwrap();
+    assert_eq!(empty.deserialize::<Enum>().unwrap(), Enum::Empty);
+
+    let null = lua.new_val(SerdeValue(Enum::Null)).unwrap();
+    assert_eq!(null.deserialize::<Enum>().unwrap(), Enum::Null);
 
     let int = lua.new_val(SerdeValue(Enum::Int(123))).unwrap();
-    println!("{:?}", int.deserialize::<serde_json::Value>());
     assert_eq!(int.deserialize::<Enum>().unwrap(), Enum::Int(123));
 
     let flt = lua.new_val(SerdeValue(Enum::Float(123.0))).unwrap();
     assert_eq!(flt.deserialize::<Enum>().unwrap(), Enum::Float(123.0));
+
+    let newtype = Enum::NewTuple(111, "ddd".into());
+    let new = lua.new_val(SerdeValue(&newtype)).unwrap();
+    assert_eq!(new.deserialize::<Enum>().unwrap(), newtype);
+
+    let newtype = Enum::NewStruct {
+        abc: 111,
+        def: "ddd".into(),
+    };
+    let new = lua.new_val(SerdeValue(&newtype)).unwrap();
+    // println!("{:?}", serde_json::to_string(&new).unwrap());
+    assert_eq!(new.deserialize::<Enum>().unwrap(), newtype);
 }
