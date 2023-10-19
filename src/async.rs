@@ -382,7 +382,7 @@ pub trait LuaAsyncMethod<'a, THIS: 'a, ARGS: 'a, RET: 'a>: Send + Sync {
 }
 
 macro_rules! impl_method {
-    ($(($x:ident, $i:tt)) *) => (
+    ($(($x:ident, $i:tt))*) => (
         // For normal function
         #[allow(unused_parens)]
         impl<'a,
@@ -415,6 +415,7 @@ macro_rules! impl_method {
     );
 }
 
+impl_method!();
 impl_method!((A, 0));
 impl_method!((A, 0)(B, 1));
 impl_method!((A, 0)(B, 1)(C, 2));
