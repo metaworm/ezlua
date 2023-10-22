@@ -24,6 +24,8 @@ pub fn init_global(s: &State) -> Result<()> {
     s.register_module("regex", regex::open, false)?;
     #[cfg(feature = "json")]
     s.register_module("json", json::open, false)?;
+    #[cfg(feature = "tokio")]
+    s.register_module("tokio", tokio::open, false)?;
 
     Ok(())
 }

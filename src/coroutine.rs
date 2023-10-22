@@ -5,7 +5,8 @@ use crate::{
     error::{Result, ToLuaResult},
     ffi::*,
     lua::ArcLuaInner,
-    luaapi::{ThreadStatus, Type, UnsafeLuaApi},
+    luaapi::{ThreadStatus, Type, UnsafeLuaApi, NOREF},
+    prelude::Reference,
     state::State,
     value::ValRef,
 };
@@ -100,5 +101,23 @@ impl Coroutine {
 impl FromLua<'_> for Coroutine {
     fn from_lua(s: &State, val: ValRef) -> Result<Self> {
         Self::new(val)
+    }
+}
+
+pub struct CoroutineWithRef(pub Coroutine, pub Reference);
+
+impl CoroutineWithRef {
+    pub fn take<'l>(&mut self, lua: &'l State) -> Result<ValRef<'l>> {
+        let result = lua.registry().take_reference(self.1)?;
+        self.1 = NOREF;
+        Ok(result)
+    }
+}
+
+impl Drop for CoroutineWithRef {
+    fn drop(&mut self) {
+        if !self.1.is_no_ref() {
+            self.0.registry().unreference(self.1);
+        }
     }
 }

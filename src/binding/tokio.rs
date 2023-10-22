@@ -2,17 +2,15 @@ use ::tokio::runtime::Handle;
 use alloc::sync::Arc;
 use tokio::{sync::oneshot, task::JoinHandle};
 
-use crate::{prelude::*, userdata::UserDataTrans};
+use crate::{coroutine::CoroutineWithRef, prelude::*, userdata::UserDataTrans};
 
 pub struct TokioTask {
-    join: JoinHandle<LuaResult<Reference>>,
+    join: JoinHandle<LuaResult<CoroutineWithRef>>,
 }
 
 impl TokioTask {
-    pub async fn join<'a>(lua: &'a LuaState, this: LuaUserData<'a>) -> LuaResult<ValRef<'a>> {
-        let this = this.take::<Self>().ok_or("task was taken").lua_result()?;
-        lua.registry()
-            .take_reference(this.join.await.lua_result()??)
+    pub async fn join<'a>(lua: &'a LuaState, this: OwnedUserdata<Self>) -> LuaResult<ValRef<'a>> {
+        this.0.join.await.lua_result()??.take(lua)
     }
 }
 
@@ -30,10 +28,11 @@ impl UserData for Handle {
     fn methods(methods: UserdataRegistry<Self>) -> LuaResult<()> {
         methods.set_closure("spawn", |this: &Self, routine: Coroutine| TokioTask {
             join: this.spawn(async move {
-                routine
-                    .call_async::<_, ValRef>(())
-                    .await
-                    .and_then(|v| routine.registry().reference(v))
+                let result = routine
+                    .val(1)
+                    .pcall::<_, ValRef>(())
+                    .and_then(|res| routine.registry().reference(res));
+                result.map(|refer| CoroutineWithRef(routine, refer))
             }),
         })?;
 
@@ -55,10 +54,11 @@ impl UserData for Handle {
         methods.set_closure("spawn_blocking", |this: &Self, routine: Coroutine| {
             TokioTask {
                 join: this.spawn_blocking(move || {
-                    routine
+                    let result = routine
                         .val(1)
                         .pcall::<_, ValRef>(())
-                        .and_then(|v| routine.registry().reference(v))
+                        .and_then(|res| routine.registry().reference(res));
+                    result.map(|refer| CoroutineWithRef(routine, refer))
                 }),
             }
         })?;
@@ -72,19 +72,21 @@ pub fn open(lua: &LuaState) -> LuaResult<LuaTable> {
 
     m.set_closure("spawn", |routine: Coroutine| TokioTask {
         join: ::tokio::spawn(async move {
-            routine
-                .call_async::<_, ValRef>(())
-                .await
-                .and_then(|v| routine.registry().reference(v))
+            let result = routine
+                .val(1)
+                .pcall::<_, ValRef>(())
+                .and_then(|res| routine.registry().reference(res));
+            result.map(|refer| CoroutineWithRef(routine, refer))
         }),
     })?;
 
     m.set_closure("spawn_blocking", |routine: Coroutine| TokioTask {
         join: ::tokio::task::spawn_blocking(move || {
-            routine
+            let result = routine
                 .val(1)
                 .pcall::<_, ValRef>(())
-                .and_then(|v| routine.registry().reference(v))
+                .and_then(|res| routine.registry().reference(res));
+            result.map(|refer| CoroutineWithRef(routine, refer))
         }),
     })?;
 

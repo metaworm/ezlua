@@ -149,13 +149,19 @@ async fn async_error_balance() {
         }
     }
 
-    lua.global()
-        .set_async_closure("asyncerror", async move |err: &str| {
+    let co = Coroutine::empty(&lua);
+    let async_error = co
+        .async_closure(async move |err: &str| {
             tokio::time::sleep(Duration::from_millis(100)).await;
             Err::<(), _>(err).lua_result()
         })
         .unwrap();
-    let foo = lua
+    for _ in 0..10 {
+        println!("{}", async_error.call_async_void("error").await.unwrap_err());
+    }
+
+    co.global().set("asyncerror", async_error).unwrap();
+    let foo = co
         .load("print(pcall(function() asyncerror('error') end))", None)
         .unwrap();
     foo.call_async_void((1, 2, 3)).await.unwrap();

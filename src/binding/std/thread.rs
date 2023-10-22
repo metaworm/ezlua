@@ -1,3 +1,5 @@
+use crate::coroutine::CoroutineWithRef;
+
 use super::*;
 
 use core::cell::RefCell;
@@ -11,7 +13,7 @@ use std::time::Duration;
 
 struct LuaThread {
     handle: RawHandle,
-    join: JoinHandle<LuaResult<Reference>>,
+    join: JoinHandle<LuaResult<CoroutineWithRef>>,
 }
 
 impl UserData for LuaThread {
@@ -30,8 +32,7 @@ impl UserData for LuaThread {
             "join",
             mt.state()
                 .new_closure1(|lua, OwnedUserdata::<Self>(this)| {
-                    let res = this.join.join().lua_result()??;
-                    lua.registry().take_reference(res)
+                    this.join.join().lua_result()??.take(lua)
                 })?,
         )?;
         mt.set_closure("unpark", |this: &Self| this.join.thread().unpark())?;
@@ -194,10 +195,11 @@ pub fn init(lua: &LuaState) -> Result<LuaTable> {
         thread::Builder::new()
             .name(name.unwrap_or("<lua>").into())
             .spawn(move || {
-                routine
+                let result = routine
                     .val(1)
                     .pcall::<_, ValRef>(())
-                    .and_then(|res| routine.registry().reference(res))
+                    .and_then(|res| routine.registry().reference(res));
+                result.map(|refer| CoroutineWithRef(routine, refer))
             })
             .map(|join| {
                 #[cfg(target_os = "windows")]
