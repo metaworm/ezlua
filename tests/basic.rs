@@ -557,7 +557,7 @@ fn non_table_access() {
 
     nil.pcall_void(()).unwrap_err();
 
-    nil.close().unwrap_err();
+    nil.close_and_remove_metatable().unwrap_err();
 }
 
 #[test]

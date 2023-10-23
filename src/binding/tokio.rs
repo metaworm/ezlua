@@ -29,8 +29,8 @@ impl UserData for Handle {
         methods.set_closure("spawn", |this: &Self, routine: Coroutine| TokioTask {
             join: this.spawn(async move {
                 let result = routine
-                    .val(1)
-                    .pcall::<_, ValRef>(())
+                    .call_async::<_, ValRef>(())
+                    .await
                     .and_then(|res| routine.registry().reference(res));
                 result.map(|refer| CoroutineWithRef(routine, refer))
             }),
@@ -73,8 +73,8 @@ pub fn open(lua: &LuaState) -> LuaResult<LuaTable> {
     m.set_closure("spawn", |routine: Coroutine| TokioTask {
         join: ::tokio::spawn(async move {
             let result = routine
-                .val(1)
-                .pcall::<_, ValRef>(())
+                .call_async::<_, ValRef>(())
+                .await
                 .and_then(|res| routine.registry().reference(res));
             result.map(|refer| CoroutineWithRef(routine, refer))
         }),

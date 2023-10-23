@@ -776,8 +776,9 @@ impl State {
         gc: CFunction,
         upvals: usize,
     ) -> Result<()> {
-        let mt = self.new_table_with_size(0, 1)?;
+        let mt = self.new_table_with_size(0, 2)?;
         mt.set("__gc", gc)?;
+        mt.set("__close", gc)?;
         mt.0.ensure_top();
         self.set_metatable(-2);
         self.set_top(self.get_top() + upvals as i32);

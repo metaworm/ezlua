@@ -54,7 +54,7 @@ impl<'a> UserData for LuaMutexGaurd<'a> {
     const TYPE_NAME: &'static str = "LuaMutexGaurd";
 
     fn methods(methods: UserdataRegistry<Self>) -> LuaResult<()> {
-        methods.set_closure("unlock", ValRef::close)?;
+        methods.set_closure("unlock", ValRef::close_and_remove_metatable)?;
         Ok(())
     }
 }

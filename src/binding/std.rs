@@ -517,7 +517,7 @@ pub fn init_global(s: &LuaState) -> Result<()> {
         })?,
     )?;
     g.set_closure("writefile", std::fs::write::<&std::path::Path, &[u8]>)?;
-    g.set_closure("closeobject", |val: ValRef| val.close())?;
+    g.set_closure("closeobject", ValRef::close_and_remove_metatable)?;
 
     Ok(())
 }

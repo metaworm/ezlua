@@ -347,8 +347,10 @@ impl<'a> ValRef<'a> {
 
     /// Close this value, if userdata, the subsequent access to it in lua is invalid
     #[inline(always)]
-    pub fn close(self) -> Result<()> {
-        self.call_metamethod("__close", ArgRef(self.index))
+    pub fn close_and_remove_metatable(self) -> Result<()> {
+        self.call_metamethod("__close", ArgRef(self.index))?;
+        self.remove_metatable();
+        Ok(())
     }
 
     /// Tests whether two lua values are equal without metamethod triggers
