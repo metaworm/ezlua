@@ -14,6 +14,7 @@ use core::{ffi::c_int, future::Future};
 pub type TaskOutput<'a> = Box<dyn Future<Output = Result<usize>> + Send + 'a>;
 
 struct TaskWrapper<'a> {
+    verify: usize,
     task: Option<Box<dyn FnOnce(&'a State, i32) -> TaskOutput<'a> + Send + 'a>>,
     error: Option<Error>,
 }
@@ -102,33 +103,34 @@ impl Coroutine {
     }
 }
 
+unsafe extern "C" fn continue_func(
+    l: *mut lua_State,
+    status: c_int,
+    ctx: ffi::lua_KContext,
+) -> c_int {
+    let mut wrap = Box::from_raw(ctx as *mut TaskWrapper);
+    if let Some(err) = wrap.error.take() {
+        drop(wrap);
+        State::from_raw_state(l).raise_error(err);
+    }
+    ffi::lua_gettop(l)
+}
+
 impl State {
     #[inline(always)]
     pub(crate) fn yield_task<'a, F: FnOnce(&'a State, i32) -> TaskOutput<'a> + Send + 'a>(
         self,
         callback: F,
     ) -> ! {
-        let pudata = self
-            .push_userdatauv(
-                TaskWrapper {
-                    task: Some(Box::new(callback)),
-                    error: None,
-                },
-                0,
-            )
-            .expect("push task wrapper") as *mut _;
-
-        unsafe extern "C" fn continue_func(
-            l: *mut lua_State,
-            status: c_int,
-            ctx: ffi::lua_KContext,
-        ) -> c_int {
-            let taskwrap = (ctx as *mut TaskWrapper).as_mut().expect("get taskwrapper");
-            if let Some(err) = taskwrap.error.take() {
-                State::from_raw_state(l).raise_error(err);
+        let pudata = Box::into_raw(
+            TaskWrapper {
+                verify: continue_func as usize,
+                task: Some(Box::new(callback)),
+                error: None,
             }
-            ffi::lua_gettop(l)
-        }
+            .into(),
+        );
+        self.push_light_userdata(pudata);
 
         unsafe {
             let l = self.as_ptr();
@@ -139,44 +141,58 @@ impl State {
         unreachable!("co_yieldk called in non-coroutine context; check is_yieldable first")
     }
 
-    /// Maps to `lua_pcallk`.
-    pub(crate) fn pcallk<F>(
-        &self,
-        nargs: c_int,
-        nresults: c_int,
-        msgh: c_int,
-        continuation: F,
-    ) -> c_int
-    where
-        F: FnOnce(&State, ThreadStatus) -> c_int,
-    {
-        let func = continue_func::<F>;
-        let ctx = Box::into_raw(continuation.into()) as _;
-        unsafe {
-            // lua_pcallk only returns if no yield occurs, so call the continuation
-            func(
-                self.as_ptr(),
-                ffi::lua_pcallk(self.as_ptr(), nargs, nresults, msgh, ctx, Some(func)),
-                ctx,
-            )
-        }
-    }
+    // /// Maps to `lua_pcallk`.
+    // pub(crate) fn pcallk<F>(
+    //     &self,
+    //     nargs: c_int,
+    //     nresults: c_int,
+    //     msgh: c_int,
+    //     continuation: F,
+    // ) -> c_int
+    // where
+    //     F: FnOnce(&State, ThreadStatus) -> c_int,
+    // {
+    //     let func = continue_func::<F>;
+    //     let ctx = Box::into_raw(continuation.into()) as _;
+    //     unsafe {
+    //         // lua_pcallk only returns if no yield occurs, so call the continuation
+    //         func(
+    //             self.as_ptr(),
+    //             ffi::lua_pcallk(self.as_ptr(), nargs, nresults, msgh, ctx, Some(func)),
+    //             ctx,
+    //         )
+    //     }
+    // }
 
-    /// Maps to `lua_yield`.
-    pub(crate) fn r#yield(&self, nresults: c_int) -> ! {
-        unsafe { ffi::lua_yield(self.as_ptr(), nresults) };
-        panic!("co_yieldk called in non-coroutine context; check is_yieldable first")
-    }
+    // /// Maps to `lua_yield`.
+    // pub(crate) fn r#yield(&self, nresults: c_int) -> ! {
+    //     unsafe { ffi::lua_yield(self.as_ptr(), nresults) };
+    //     panic!("co_yieldk called in non-coroutine context; check is_yieldable first")
+    // }
 
-    /// Maps to `lua_yieldk`.
-    pub(crate) fn yieldk<F>(&self, nresults: c_int, continuation: F) -> !
-    where
-        F: FnOnce(&State, ThreadStatus) -> c_int,
-    {
-        let ctx = Box::into_raw(continuation.into()) as _;
-        unsafe { ffi::lua_yieldk(self.as_ptr(), nresults, ctx, Some(continue_func::<F>)) };
-        panic!("co_yieldk called in non-coroutine context; check is_yieldable first")
-    }
+    // /// Maps to `lua_yieldk`.
+    // pub(crate) fn yieldk<F>(&self, nresults: c_int, continuation: F) -> !
+    // where
+    //     F: FnOnce(&State, ThreadStatus) -> c_int,
+    // {
+    //     unsafe extern "C" fn continue_func<F>(
+    //         l: *mut lua_State,
+    //         status: c_int,
+    //         ctx: ffi::lua_KContext,
+    //     ) -> c_int
+    //     where
+    //         F: FnOnce(&State, ThreadStatus) -> c_int,
+    //     {
+    //         core::mem::transmute::<_, Box<F>>(ctx)(
+    //             &State::from_raw_state(l),
+    //             ThreadStatus::from_c_int(status),
+    //         )
+    //     }
+
+    //     let ctx = Box::into_raw(continuation.into()) as _;
+    //     unsafe { ffi::lua_yieldk(self.as_ptr(), nresults, ctx, Some(continue_func::<F>)) };
+    //     panic!("co_yieldk called in non-coroutine context; check is_yieldable first")
+    // }
 
     /// Bind a rust async function(closure)
     #[inline(always)]
@@ -287,6 +303,9 @@ impl State {
                             .ok_or("coroutine task expect a TaskWrapper")
                             .map_err(Error::runtime)?
                     };
+                    if taskwrap.verify != continue_func as *const () as usize {
+                        return Err(Error::runtime("expect a rust task in async coroutine"));
+                    }
 
                     // yield(..., TaskWrapper)
                     let base = self.get_top() - nres + 1;
@@ -337,20 +356,6 @@ impl State {
             }
         }
     }
-}
-
-unsafe extern "C" fn continue_func<F>(
-    l: *mut lua_State,
-    status: c_int,
-    ctx: ffi::lua_KContext,
-) -> c_int
-where
-    F: FnOnce(&State, ThreadStatus) -> c_int,
-{
-    core::mem::transmute::<_, Box<F>>(ctx)(
-        &State::from_raw_state(l),
-        ThreadStatus::from_c_int(status),
-    )
 }
 
 pub unsafe extern "C" fn async_closure_wrapper<
