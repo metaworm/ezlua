@@ -1,3 +1,8 @@
+use std::{
+    fs::File,
+    io::{BufReader, BufWriter},
+};
+
 use crate::{impl_fromlua_as_serde, impl_tolua_as_serde, prelude::*};
 
 impl_tolua_as_serde!(serde_json::Value);
@@ -14,9 +19,9 @@ pub fn open(s: &LuaState) -> LuaResult<LuaTable> {
     m.set(
         "loadfile",
         s.new_closure1(|s: &LuaState, path: &str| {
-            s.load_from_deserializer(&mut serde_json::Deserializer::from_reader(
-                std::fs::File::open(path).lua_result()?,
-            ))
+            s.load_from_deserializer(&mut serde_json::Deserializer::from_reader(BufReader::new(
+                File::open(path).lua_result()?,
+            )))
         })?,
     )?;
     m.set_closure("dump", |val: ValRef, pretty: LuaValue| match pretty {
@@ -25,6 +30,9 @@ pub fn open(s: &LuaState) -> LuaResult<LuaTable> {
     })?;
     m.set_closure("dump_pretty", |val: ValRef| {
         serde_json::to_vec_pretty(&val).map(LuaBytes)
+    })?;
+    m.set_closure("dumpfile", |path: &str, val: ValRef| {
+        serde_json::to_writer(BufWriter::new(File::create(path).lua_result()?), &val).lua_result()
     })?;
     m.set_closure("print", |val: ValRef| {
         serde_json::to_writer(&mut std::io::stdout(), &val)

@@ -232,8 +232,9 @@ impl<'a> LuaTableSerializer<'a> {
     }
 
     fn begin_array(s: &'a State, len: usize) -> LuaResult<Self> {
-        s.new_table_with_size(len as _, 0)
-            .map(|val| Self(val, None))
+        let t = s.new_table_with_size(len as _, 0)?;
+        t.set_metatable(s.array_metatable()?)?;
+        Ok(Self(t, None))
     }
 }
 
