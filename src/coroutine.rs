@@ -8,7 +8,7 @@ use crate::{
     luaapi::{ThreadStatus, Type, UnsafeLuaApi, NOREF},
     prelude::Reference,
     state::State,
-    value::ValRef,
+    value::{Function, ValRef},
 };
 
 pub struct Coroutine {
@@ -79,6 +79,13 @@ impl Coroutine {
         })
     }
 
+    /// Get the function associated to this coroutine
+    #[inline(always)]
+    pub fn func(&self) -> Result<Function> {
+        self.val(1).try_into()
+    }
+
+    #[doc(hidden)]
     pub fn resume<'a, A: ToLuaMulti, R: FromLuaMulti<'a>>(&'a mut self, args: A) -> Result<R> {
         self.pop(self.nres);
         self.state

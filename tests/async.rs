@@ -152,17 +152,24 @@ async fn async_error_balance() {
     let co = Coroutine::empty(&lua);
     let async_error = co
         .async_closure(async move |err: &str| {
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(1)).await;
             Err::<(), _>(err).lua_result()
         })
         .unwrap();
     for _ in 0..10 {
-        println!("{}", async_error.call_async_void("error").await.unwrap_err());
+        println!(
+            "{}",
+            async_error.call_async_void("error").await.unwrap_err()
+        );
     }
 
+    // error catch in async context
     co.global().set("asyncerror", async_error).unwrap();
     let foo = co
-        .load("print(pcall(function() asyncerror('error') end))", None)
+        .load(
+            "print(xpcall(function() asyncerror('error') end, debug.traceback))",
+            None,
+        )
         .unwrap();
     foo.call_async_void((1, 2, 3)).await.unwrap();
 
