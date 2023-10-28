@@ -1,6 +1,6 @@
 [package]
 name = "ezlua"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 license = "MIT"
 authors = ["metaworm <metaworm@outlook.com>"]
@@ -42,7 +42,7 @@ serde = {version = '1.0', default-features = false, features = ['rc', 'derive'],
 serde_json = '1'
 tokio = {version = '1', features = ["net", "time", "macros", "rt"]}
 ezlua = {path = ".", features = ['vendored', 'thread', 'async']}
-mlua = {version = '0.8', features = ['lua54', 'vendored']}
+mlua = {version = '0.9', features = ['lua54', 'vendored']}
 serde = {version = '1.0', default-features = false, features = ['rc', 'derive']}
 
 [build-dependencies]

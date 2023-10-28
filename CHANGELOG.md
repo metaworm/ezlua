@@ -1,4 +1,9 @@
 
+## v0.4.2
+
+- Bugfix for serialization to enum type
+- Removed `Coroutine::call_async`
+
 ## v0.4.1
 
 - Added [tokio bindings](https://ezlua-types.vercel.app/modules/tokio.html)

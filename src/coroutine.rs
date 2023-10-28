@@ -111,6 +111,7 @@ impl FromLua<'_> for Coroutine {
     }
 }
 
+/// Coroutine with a lua value reference, which will be unreference when drop
 pub struct CoroutineWithRef(pub Coroutine, pub Reference);
 
 impl CoroutineWithRef {
