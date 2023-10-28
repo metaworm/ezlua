@@ -788,6 +788,54 @@ impl<'a, U: 'a, R: 'a, W> MethodRegistry<'a, U, R, W> {
         Ok(self)
     }
 
+    #[cfg(feature = "async")]
+    #[inline(always)]
+    pub fn add_async_method<M, ARGS, RET, FUT>(&self, k: &str, method: M) -> Result<&Self>
+    where
+        ARGS: FromLuaMulti<'a> + Send + 'a,
+        RET: ToLuaMulti + 'a,
+        M: Fn(&'a State, &'a U, ARGS) -> FUT + Sync + Send + 'static,
+        R: Deref<Target = U> + FromLua<'a> + Send + 'a,
+        FUT: core::future::Future<Output = RET> + Send + 'a,
+    {
+        self.0.raw_set(
+            k,
+            self.state.bind_async_closure(move |lua, base| {
+                let this = check_from_lua::<R>(lua, base)?;
+                Ok(method(
+                    lua,
+                    unsafe { core::mem::transmute(this.deref()) },
+                    ARGS::from_lua_multi(lua, base + 1)?,
+                ))
+            })?,
+        )?;
+        Ok(self)
+    }
+
+    #[cfg(feature = "async")]
+    #[inline(always)]
+    pub fn add_async_method_mut<M, ARGS, RET, FUT>(&self, k: &str, method: M) -> Result<&Self>
+    where
+        ARGS: FromLuaMulti<'a> + Send + 'a,
+        RET: ToLuaMulti + 'a,
+        M: Fn(&'a State, &'a mut U, ARGS) -> FUT + Sync + Send + 'static,
+        W: DerefMut<Target = U> + FromLua<'a> + Send + 'a,
+        FUT: core::future::Future<Output = RET> + Send + 'a,
+    {
+        self.0.raw_set(
+            k,
+            self.state.bind_async_closure(move |lua, base| {
+                let mut this = check_from_lua::<W>(lua, base)?;
+                Ok(method(
+                    lua,
+                    unsafe { core::mem::transmute(this.deref_mut()) },
+                    ARGS::from_lua_multi(lua, base + 1)?,
+                ))
+            })?,
+        )?;
+        Ok(self)
+    }
+
     #[inline(always)]
     pub fn add<K, V, ARGS: 'a, RET: 'a>(&self, k: K, v: V) -> Result<&Self>
     where

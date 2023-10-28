@@ -1,6 +1,5 @@
 use crate::{
     convert::*,
-    coroutine::Coroutine,
     error::{Error, Result},
     ffi::{self, lua_State, lua_resetthread},
     luaapi::*,
@@ -19,24 +18,21 @@ struct TaskWrapper<'a> {
     error: Option<Error>,
 }
 
-impl Function<'_> {
+impl<'a> Function<'a> {
     #[inline(always)]
-    pub async fn call_async_void<'a, T: ToLuaMulti>(&'a self, args: T) -> Result<()> {
+    pub async fn call_async_void<T: ToLuaMulti>(&self, args: T) -> Result<()> {
         self.call_async(args).await
     }
 
     // TODO: doc: once failed, refs to this state is invalid, and should to be dropped
     #[inline(always)]
-    pub async fn call_async<'a, T: ToLuaMulti, R: FromLuaMulti<'a>>(
-        &'a self,
-        args: T,
-    ) -> Result<R> {
+    pub async fn call_async<T: ToLuaMulti, R: FromLuaMulti<'a>>(&self, args: T) -> Result<R> {
         self.call_async_from(args, None).await
     }
 
     #[inline(always)]
-    pub async fn call_async_from<'a, T: ToLuaMulti, R: FromLuaMulti<'a>>(
-        &'a self,
+    pub async fn call_async_from<T: ToLuaMulti, R: FromLuaMulti<'a>>(
+        &self,
         args: T,
         state: Option<&State>,
     ) -> Result<R> {
@@ -70,36 +66,6 @@ impl Table<'_> {
     ) -> Result<&Self> {
         self.set(key, self.state.async_closure(fun)?)?;
         Ok(self)
-    }
-}
-
-impl Coroutine {
-    #[inline(always)]
-    pub async fn call_async<'a, T: ToLuaMulti, R: FromLuaMulti<'a>>(
-        &'a self,
-        args: T,
-    ) -> Result<R> {
-        self.call_async_from(args, None).await
-    }
-
-    #[inline(always)]
-    pub async fn call_async_from<'a, T: ToLuaMulti, R: FromLuaMulti<'a>>(
-        &'a self,
-        args: T,
-        state: Option<&State>,
-    ) -> Result<R> {
-        let guard = self.stack_guard();
-
-        self.state
-            .check_stack(args.value_count().unwrap_or(10) as i32 + 2)?;
-
-        self.push_value(1);
-        let count = R::COUNT as i32;
-        let guard = self
-            .raw_call_async(state, guard, self.push_multi(args)? as _, count)
-            .await?;
-        let result_base = guard.top() + 1;
-        self.to_multi_balance(guard, result_base)
     }
 }
 
