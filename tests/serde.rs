@@ -170,3 +170,27 @@ fn serde_enum() {
     // println!("{:?}", serde_json::to_string(&new).unwrap());
     assert_eq!(new.deserialize::<Enum>().unwrap(), newtype);
 }
+
+#[ignore = "manual"]
+#[test]
+fn memory_leak() {
+    let lua = Lua::with_open_libs();
+
+    lua.register_module("json", ezlua::binding::json::open, true)
+        .unwrap();
+
+    lua.load(
+        r"
+    local data = json.loadfile('./target/.rustc_info.json')
+    for i = 1, 10000000000 do
+        -- json.dump(data)
+        json.dump(json.loadfile('./target/.rustc_info.json'))
+        collectgarbage()
+    end
+    ",
+        None,
+    )
+    .unwrap()
+    .pcall_void(())
+    .unwrap();
+}
