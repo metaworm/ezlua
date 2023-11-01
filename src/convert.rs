@@ -817,12 +817,15 @@ pub unsafe extern "C" fn closure_wrapper<'l, R: ToLuaMulti + 'l, F: Fn(&'l State
     let s: &'l State = core::mem::transmute(&state);
     #[allow(unused_assignments)]
     let mut pfn = core::mem::transmute(1usize);
-    let f: &F = if core::mem::size_of::<F>() == 0 {
+    let func: &F = if core::mem::size_of::<F>() == 0 {
         core::mem::transmute(pfn)
     } else {
         pfn = s.to_userdata(ffi::lua_upvalueindex(1));
         core::mem::transmute(pfn)
     };
 
-    state.return_result(f(s)) as _
+    // Confusingly, if I use one statement, i.e. `state.return_result(func(s)) as _`, the `state`
+    // seems to have been copied twice, causing the free array to fail to be released during drop, resulting in a memory leak
+    let result = func(s);
+    state.return_result(result) as _
 }

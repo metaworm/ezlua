@@ -291,6 +291,7 @@ impl State {
                             taskwrap.error.replace(err);
                             0
                         }) as _;
+                    drop(state);
 
                     // keep the last nargs elements in stack
                     let top = self.get_top();
