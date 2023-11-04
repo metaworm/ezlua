@@ -67,6 +67,23 @@ impl Table<'_> {
         self.set(key, self.state.async_closure(fun)?)?;
         Ok(self)
     }
+
+    #[inline(always)]
+    pub fn set_async_function<
+        'l,
+        K: ToLua,
+        A: FromLuaMulti<'l> + 'l,
+        R: ToLuaMulti + 'l,
+        FUT: Future<Output = R> + Send + 'l,
+        F: Fn(&'l State, A) -> FUT + Sync + Send + 'static,
+    >(
+        &'l self,
+        key: K,
+        fun: F,
+    ) -> Result<&Self> {
+        self.set(key, self.state.async_function(fun)?)?;
+        Ok(self)
+    }
 }
 
 unsafe extern "C" fn continue_func(

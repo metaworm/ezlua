@@ -69,10 +69,10 @@ impl State {
 
     /// transcode a serializable value from deserializer into a lua value
     #[inline(always)]
-    pub fn load_from_deserializer<'de, D: Deserializer<'de>>(
-        &'de self,
+    pub fn load_from_deserializer<'l: 'de, 'de, D: Deserializer<'de>>(
+        &'l self,
         deserializer: D,
-    ) -> Result<ValRef<'de>, LuaError> {
+    ) -> Result<ValRef<'l>, LuaError> {
         serde_transcode::transcode(deserializer, LuaSerializer(self))
     }
 
@@ -1062,15 +1062,15 @@ impl Serialize for ValRef<'_> {
         match self.type_of() {
             Type::String => {
                 let bytes = self.to_bytes().unwrap_or_default();
-                // TODO:
-                if bytes.len() > 0x1000 {
-                    serializer.serialize_bytes(bytes)
-                } else {
-                    match core::str::from_utf8(bytes) {
-                        Ok(s) => serializer.serialize_str(s),
-                        Err(_) => serializer.serialize_bytes(bytes),
-                    }
+                // TODO: serde option
+                // if bytes.len() > 0x1000 {
+                //     serializer.serialize_bytes(bytes)
+                // } else {
+                match core::str::from_utf8(bytes) {
+                    Ok(s) => serializer.serialize_str(s),
+                    Err(_) => serializer.serialize_bytes(bytes),
                 }
+                // }
             }
             Type::Number => {
                 if self.is_integer() {
@@ -1082,6 +1082,13 @@ impl Serialize for ValRef<'_> {
             // TODO: serde option
             Type::Function => serializer.serialize_bool(true),
             Type::Boolean => serializer.serialize_bool(self.to_bool()),
+            Type::LightUserdata => {
+                if self.to_pointer() == State::null_value as *const c_void {
+                    serializer.serialize_none()
+                } else {
+                    serializer.serialize_none()
+                }
+            }
             _ => {
                 if let Some(t) = self.as_table() {
                     let ptr = t.to_pointer();

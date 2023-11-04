@@ -98,15 +98,23 @@ impl Default for LuaCondVar {
 }
 
 impl UserData for LuaCondVar {
-    const TYPE_NAME: &'static str = "LuaCondVar";
+    const TYPE_NAME: &'static str = "thread.CondVar";
 
     fn methods(mt: UserdataRegistry<Self>) -> Result<()> {
-        mt.add_method("wait", |s, this, tm: Option<u64>| this.wait(s, tm))?;
+        mt.add_method("wait", |s, this, tm| this.wait(s, tm))?;
         mt.add_method("notify_one", |s, this, val: ValRef| {
             this.push_some(s, val).map(|_| this.cvar.notify_one())
         })?;
         mt.add_method("notify_all", |s, this, val: ValRef| {
             this.push_some(s, val).map(|_| this.cvar.notify_all())
+        })?;
+
+        Ok(())
+    }
+
+    fn metatable(mt: UserdataRegistry<Self>) -> LuaResult<()> {
+        mt.set_closure("__close", |lua: &LuaState, this: OwnedUserdata<Self>| {
+            lua.registry().unreference(*this.0.lock.lock().unwrap());
         })?;
 
         Ok(())
@@ -117,34 +125,35 @@ impl LuaCondVar {
     fn push_some(&self, s: &LuaState, val: ValRef) -> Result<()> {
         let mut i = self.lock.lock().lua_result()?;
         let creg = s.registry();
-        creg.unreference((*i).into());
+        creg.unreference(core::mem::take(&mut *i));
         *i = creg.reference(val)?;
 
         Ok(())
     }
 
-    fn wait<'a>(&self, s: &'a LuaState, timeout: Option<u64>) -> Result<ValRef<'a>> {
+    fn wait<'a>(&self, s: &'a LuaState, timeout: Option<Duration>) -> Result<ValRef<'a>> {
         let lock = &self.lock;
         let cvar = &self.cvar;
         if let Some(tm) = timeout {
             let (i, r) = cvar
-                .wait_timeout(lock.lock().lua_result()?, Duration::from_millis(tm))
+                .wait_timeout(lock.lock().lua_result()?, tm)
                 .map_err(LuaError::runtime_debug)?;
             if r.timed_out() {
                 return s.new_val(());
             }
-            s.registry().take_reference(*i)
+            // Should not be taken away because there may be multiple threads waiting
+            s.registry().raw_geti(i.0)
         } else {
             let i = cvar
                 .wait(lock.lock().lua_result()?)
                 .map_err(LuaError::runtime_debug)?;
-            s.registry().take_reference(*i)
+            s.registry().raw_geti(i.0)
         }
     }
 }
 
 impl UserData for Sender<Reference> {
-    const TYPE_NAME: &'static str = "Sender";
+    const TYPE_NAME: &'static str = "thread.Sender";
 
     fn methods(methods: UserdataRegistry<Self>) -> LuaResult<()> {
         methods.set_closure("send", |lua: &LuaState, this: &Self, val: ValRef| {
@@ -156,7 +165,7 @@ impl UserData for Sender<Reference> {
 }
 
 impl UserData for Receiver<Reference> {
-    const TYPE_NAME: &'static str = "Receiver";
+    const TYPE_NAME: &'static str = "thread.Receiver";
     type Trans = RefCell<Self>;
 
     fn methods(methods: UserdataRegistry<Self>) -> LuaResult<()> {

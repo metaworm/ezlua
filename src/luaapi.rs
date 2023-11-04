@@ -1384,6 +1384,12 @@ impl ThreadStatus {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Reference(pub c_int);
 
+impl Default for Reference {
+    fn default() -> Self {
+        NOREF
+    }
+}
+
 /// The result of `reference` for `nil` values.
 pub const REFNIL: Reference = Reference(LUA_REFNIL);
 
