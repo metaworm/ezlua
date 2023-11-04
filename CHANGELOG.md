@@ -1,4 +1,9 @@
 
+## v0.4.3
+
+- Bugfix: memory leak
+- Improve builtin bindings
+
 ## v0.4.2
 
 - Bugfix for serialization to enum type
