@@ -20,10 +20,12 @@ use crate::{
 pub struct NilError<T: ToLuaMulti>(pub T);
 
 impl<T: ToLuaMulti> ToLuaMulti for NilError<T> {
+    #[inline(always)]
     fn value_count(&self) -> Option<usize> {
         self.0.value_count()
     }
 
+    #[inline(always)]
     fn push_multi(self, s: &crate::state::State) -> Result<usize> {
         match self.0.push_multi(s) {
             Ok(res) => Ok(res),
@@ -216,12 +218,14 @@ impl State {
 pub struct LuaBytes(pub Vec<u8>);
 
 impl ToLua for LuaBytes {
+    #[inline(always)]
     fn to_lua<'a>(self, s: &'a State) -> Result<ValRef<'a>> {
         self.0.as_slice().to_lua(s)
     }
 }
 
 impl FromLua<'_> for LuaBytes {
+    #[inline(always)]
     fn from_lua(lua: &State, val: ValRef) -> Result<Self> {
         Ok(Self(
             val.to_bytes()
@@ -291,12 +295,13 @@ impl<'a, T: FromLua<'a> + 'a> FromLua<'a> for MultiRet<T> {
     }
 }
 
-/// Represents an userdata which ownedship is taken
-pub struct OwnedUserdata<T>(pub T);
+/// Represents an userdata whose ownedship was taken
+pub struct OwnedUserdata<T: UserData>(pub T::Trans);
 
-impl<'a, T: UserData<Trans = T>> FromLua<'a> for OwnedUserdata<T> {
+impl<'a, T: UserData> FromLua<'a> for OwnedUserdata<T> {
     const TYPE_NAME: &'static str = T::TYPE_NAME;
 
+    #[inline(always)]
     fn from_lua(lua: &'a State, val: ValRef<'a>) -> Result<OwnedUserdata<T>> {
         let u = LuaUserData::try_from(val)?;
         u.take::<T>()

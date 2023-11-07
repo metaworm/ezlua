@@ -284,8 +284,8 @@ impl UserData for oneshot::Sender<Reference> {
     fn methods(methods: UserdataRegistry<Self>) -> LuaResult<()> {
         methods.set_closure(
             "send",
-            |lua: &LuaState, OwnedUserdata(this), val: ValRef| {
-                Self::send(this, lua.registry().reference(val)?).lua_result()
+            |lua: &LuaState, OwnedUserdata::<Self>(this), val: ValRef| {
+                this.send(lua.registry().reference(val)?).lua_result()
             },
         )?;
 
