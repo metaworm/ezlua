@@ -13,7 +13,7 @@ fn lualog(level: ::log::Level, s: &LuaState, arg: MultiValRef) {
         if !buf.is_empty() {
             buf.push(' ');
         }
-        buf.push_str(&arg.to_string_lossy().unwrap_or_default());
+        buf.push_str(&arg.tostring());
     }
 
     ::log::logger().log(

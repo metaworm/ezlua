@@ -52,6 +52,7 @@ impl<'a> core::fmt::Debug for ValRef<'a> {
 
 impl Drop for ValRef<'_> {
     #[track_caller]
+    #[inline(always)]
     fn drop(&mut self) {
         self.state.drop_valref(self);
     }
@@ -149,6 +150,17 @@ impl<'a> ValRef<'a> {
     #[inline]
     pub fn to_cstr_ptr(&self) -> *const c_char {
         unsafe { lua_tostring(self.state.state, self.index) }
+    }
+
+    /// Call `tostring` if this value is not a string
+    pub fn tostring(&self) -> Cow<str> {
+        self.to_string_lossy().unwrap_or_else(|| {
+            self.state
+                .global()
+                .get("tostring")
+                .and_then(|tostring| tostring.pcall(self))
+                .unwrap_or_default()
+        })
     }
 
     /// Index number of this value on the lua stack

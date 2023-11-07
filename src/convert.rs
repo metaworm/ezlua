@@ -244,6 +244,40 @@ impl FromLua<'_> for String {
     }
 }
 
+impl FromLua<'_> for Box<str> {
+    const TYPE_NAME: &'static str = "string";
+
+    #[inline(always)]
+    fn from_lua(s: &State, val: ValRef) -> Result<Self> {
+        val.to_str()
+            .map(Into::into)
+            .ok_or_else(|| Error::TypeNotMatch(val.type_of()))
+    }
+}
+
+impl FromLua<'_> for Arc<str> {
+    const TYPE_NAME: &'static str = "string";
+
+    #[inline(always)]
+    fn from_lua(s: &State, val: ValRef) -> Result<Self> {
+        val.to_str()
+            .map(Into::into)
+            .ok_or_else(|| Error::TypeNotMatch(val.type_of()))
+    }
+}
+
+impl<'a> FromLua<'a> for Cow<'a, str> {
+    const TYPE_NAME: &'static str = "string";
+
+    fn from_lua(s: &'a State, val: ValRef<'a>) -> Result<Cow<'a, str>> {
+        val.to_safe_str()
+            .ok()
+            .map(Cow::Borrowed)
+            .or_else(|| val.to_string_lossy().map(Cow::into_owned).map(Cow::Owned))
+            .ok_or_else(|| Error::TypeNotMatch(val.type_of()))
+    }
+}
+
 impl<'a> FromLua<'a> for &'a str {
     const TYPE_NAME: &'static str = "string";
 
