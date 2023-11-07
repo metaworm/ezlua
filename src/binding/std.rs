@@ -181,6 +181,7 @@ pub mod time {
 
 pub mod process {
     use super::*;
+    #[cfg(not(feature = "parking_lot"))]
     use core::cell::RefCell;
     use std::io::{Read, Write};
     use std::process::{Child, Command, ExitStatus, Stdio};
@@ -216,6 +217,9 @@ pub mod process {
     crate::impl_toluamulti!(ExitStatus as (bool, Option<i32>): |self| (self.success(), self.code()));
 
     impl UserData for Command {
+        #[cfg(feature = "parking_lot")]
+        type Trans = parking_lot::RwLock<Self>;
+        #[cfg(not(feature = "parking_lot"))]
         type Trans = RefCell<Self>;
 
         fn methods(mt: UserdataRegistry<Self>) -> Result<()> {
@@ -262,6 +266,9 @@ pub mod process {
     }
 
     impl UserData for Child {
+        #[cfg(feature = "parking_lot")]
+        type Trans = parking_lot::RwLock<Self>;
+        #[cfg(not(feature = "parking_lot"))]
         type Trans = RefCell<Self>;
 
         fn getter(fields: UserdataRegistry<Self>) -> LuaResult<()> {

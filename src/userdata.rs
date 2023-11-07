@@ -123,6 +123,56 @@ impl<'a, T: UserData<Trans = RefCell<T>>> FromLua<'a> for RefMut<'a, T> {
     }
 }
 
+#[cfg(feature = "parking_lot")]
+impl<T: UserData> UserDataTrans<T> for parking_lot::RwLock<T> {
+    type Read<'a> = parking_lot::RwLockReadGuard<'a, T> where T: 'a;
+    type Write<'a> = parking_lot::RwLockWriteGuard<'a, T> where T: 'a;
+
+    fn trans(udata: T) -> Self {
+        parking_lot::RwLock::new(udata)
+    }
+
+    fn read(&self) -> Self::Read<'_> {
+        self.try_read().expect("")
+    }
+}
+
+#[cfg(feature = "parking_lot")]
+impl<'a, T: UserData<Trans = parking_lot::RwLock<T>>> FromLua<'a>
+    for parking_lot::RwLockReadGuard<'a, T>
+{
+    fn from_lua(s: &'a State, val: ValRef<'a>) -> Result<Self> {
+        let u = LuaUserData::try_from(val)?;
+        u.check_safe_index()?;
+        u.userdata_ref::<T>()
+            .ok_or("userdata not match")
+            .lua_result()?
+            .try_read()
+            .ok_or("RwLock::try_read")
+            .lua_result()
+            // Safety: check_safe_index
+            .map(|x| unsafe { core::mem::transmute(x) })
+    }
+}
+
+#[cfg(feature = "parking_lot")]
+impl<'a, T: UserData<Trans = parking_lot::RwLock<T>>> FromLua<'a>
+    for parking_lot::RwLockWriteGuard<'a, T>
+{
+    fn from_lua(s: &'a State, val: ValRef<'a>) -> Result<Self> {
+        let u = LuaUserData::try_from(val)?;
+        u.check_safe_index()?;
+        u.userdata_ref::<T>()
+            .ok_or("userdata not match")
+            .lua_result()?
+            .try_write()
+            .ok_or("RwLock::try_write")
+            .lua_result()
+            // Safety: check_safe_index
+            .map(|x| unsafe { core::mem::transmute(x) })
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct MaybePtrRef<'a, T>(pub &'a T);
 
