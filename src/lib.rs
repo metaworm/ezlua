@@ -6,7 +6,8 @@
     const_type_name,
     file_set_times,
     associated_type_defaults,
-    async_closure
+    async_closure,
+    box_into_inner
 )]
 #![allow(dead_code, unused_variables)]
 

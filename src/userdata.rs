@@ -51,8 +51,8 @@ pub trait UserDataTrans<T: UserData>: Sized {
         T: 'a;
 
     const INIT_USERDATA: Option<fn(&State, &mut Self)> = None;
-
-    fn trans(udata: T) -> Self;
+    const FROM_INNER: fn(T) -> Self;
+    const INTO_INNER: fn(Self) -> T;
 
     fn read(&self) -> Self::Read<'_>;
 }
@@ -61,9 +61,8 @@ impl<T: UserData> UserDataTrans<T> for T {
     type Read<'a> = &'a Self where T: 'a;
     type Write<'a> = &'a mut Self where T: 'a;
 
-    fn trans(udata: T) -> Self {
-        udata
-    }
+    const FROM_INNER: fn(T) -> Self = core::convert::identity;
+    const INTO_INNER: fn(Self) -> T = core::convert::identity;
 
     fn read(&self) -> Self::Read<'_> {
         self
@@ -74,9 +73,8 @@ impl<T: UserData> UserDataTrans<T> for RefCell<T> {
     type Read<'a> = Ref<'a, T> where T: 'a;
     type Write<'a> = RefMut<'a, T> where T: 'a;
 
-    fn trans(udata: T) -> Self {
-        RefCell::new(udata)
-    }
+    const FROM_INNER: fn(T) -> Self = RefCell::new;
+    const INTO_INNER: fn(Self) -> T = RefCell::into_inner;
 
     fn read(&self) -> Self::Read<'_> {
         self.borrow()
@@ -128,9 +126,8 @@ impl<T: UserData> UserDataTrans<T> for parking_lot::RwLock<T> {
     type Read<'a> = parking_lot::RwLockReadGuard<'a, T> where T: 'a;
     type Write<'a> = parking_lot::RwLockWriteGuard<'a, T> where T: 'a;
 
-    fn trans(udata: T) -> Self {
-        parking_lot::RwLock::new(udata)
-    }
+    const FROM_INNER: fn(T) -> Self = parking_lot::RwLock::new;
+    const INTO_INNER: fn(Self) -> T = parking_lot::RwLock::into_inner;
 
     fn read(&self) -> Self::Read<'_> {
         self.try_read().expect("")
@@ -191,9 +188,9 @@ impl<T: UserData> UserDataTrans<T> for MaybePointer<T> {
     type Read<'a> = MaybePtrRef<'a, T> where T: 'a;
     type Write<'a> = () where T: 'a;
 
-    fn trans(udata: T) -> Self {
-        Self(core::ptr::null(), Some(Box::new(udata)))
-    }
+    const FROM_INNER: fn(T) -> Self = |udata| Self(core::ptr::null(), Some(Box::new(udata)));
+    const INTO_INNER: fn(Self) -> T =
+        |mut this| Box::into_inner(this.1.take().expect("take a ref"));
 
     fn read(&self) -> Self::Read<'_> {
         MaybePtrRef(unsafe { self.get_ptr().as_ref().unwrap() })
@@ -625,7 +622,7 @@ impl State {
                 .cast::<T::Trans>()
                 .as_mut()
                 .unwrap();
-            core::ptr::write(p, <T::Trans as UserDataTrans<T>>::trans(data));
+            core::ptr::write(p, <T::Trans as UserDataTrans<T>>::FROM_INNER(data));
             if let Some(init_userdata) = <T::Trans as UserDataTrans<T>>::INIT_USERDATA {
                 init_userdata(self, p);
             }

@@ -115,9 +115,8 @@ impl<T: UserData> UserDataTrans<T> for RwLock<T> {
     type Read<'a> = RwLockReadGuard<'a, T> where T: 'a;
     type Write<'a> = RwLockWriteGuard<'a, T> where T: 'a;
 
-    fn trans(udata: T) -> Self {
-        RwLock::new(udata)
-    }
+    const FROM_INNER: fn(T) -> Self = RwLock::new;
+    const INTO_INNER: fn(Self) -> T = RwLock::into_inner;
 
     fn read(&self) -> Self::Read<'_> {
         self.try_read().expect("")

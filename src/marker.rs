@@ -12,7 +12,7 @@ use crate::{
     luaapi::{Reference, UnsafeLuaApi},
     prelude::{ArcLuaInner, LuaType, ToLuaResult},
     state::State,
-    userdata::UserData,
+    userdata::{UserData, UserDataTrans},
     value::{LuaUserData, ValRef, Value},
 };
 
@@ -296,7 +296,7 @@ impl<'a, T: FromLua<'a> + 'a> FromLua<'a> for MultiRet<T> {
 }
 
 /// Represents an userdata whose ownedship was taken
-pub struct OwnedUserdata<T: UserData>(pub T::Trans);
+pub struct OwnedUserdata<T: UserData>(pub T);
 
 impl<'a, T: UserData> FromLua<'a> for OwnedUserdata<T> {
     const TYPE_NAME: &'static str = T::TYPE_NAME;
@@ -307,6 +307,7 @@ impl<'a, T: UserData> FromLua<'a> for OwnedUserdata<T> {
         u.take::<T>()
             .ok_or("userdata not match")
             .lua_result()
+            .map(<T::Trans as UserDataTrans<_>>::INTO_INNER)
             .map(OwnedUserdata)
     }
 }
