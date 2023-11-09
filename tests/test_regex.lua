@@ -1,5 +1,5 @@
 local regex = require 'regex'
-local reg = regex.new[[(\w+)\s+(\w+)]]
+local reg = regex.Regex.new[[(\w+)\s+(\w+)]]
 print('reg', type(reg), getmetatable(reg))
 do
     local cap<close> = reg:capture 'abc def'
@@ -23,7 +23,7 @@ print(replaced)
 assert(replaced == '111')
 
 print '---------- gsplit ----------'
-reg = regex.new[[\s+]]
+reg = regex.Regex.new[[\s+]]
 for m in reg:gsplit('abc def ghi') do
     print(m)
 end

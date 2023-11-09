@@ -15,6 +15,11 @@ impl TokioTask {
 }
 
 impl UserData for TokioTask {
+    fn getter(fields: UserdataRegistry<Self>) -> LuaResult<()> {
+        fields.add_field_get("finished", |_, this| this.join.is_finished())?;
+        Ok(())
+    }
+
     fn methods(methods: UserdataRegistry<Self>) -> LuaResult<()> {
         methods.set_closure("abort", |this: &Self| this.join.abort())?;
 
@@ -94,6 +99,7 @@ pub fn open(lua: &LuaState) -> LuaResult<LuaTable> {
     })?;
 
     m.set_async_closure("sleep", ::tokio::time::sleep)?;
+    m.set_async_closure("yield_now", ::tokio::task::yield_now)?;
 
     m.set_closure("current_handle", || Handle::try_current().ok())?;
 
