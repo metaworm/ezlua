@@ -55,6 +55,24 @@ impl FromLua<'_> for serde_bytes::ByteBuf {
     }
 }
 
+#[cfg(feature = "bytes")]
+impl ToLua for &bytes::Bytes {
+    fn to_lua<'a>(self, s: &'a State) -> Result<ValRef<'a>> {
+        ToLua::to_lua(self.as_ref(), s)
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl FromLua<'_> for bytes::Bytes {
+    fn from_lua(s: &State, val: ValRef) -> Result<Self> {
+        Ok(bytes::Bytes::from(
+            val.to_bytes()
+                .ok_or_else(|| Error::TypeNotMatch(val.type_of()))?
+                .to_vec(),
+        ))
+    }
+}
+
 /// Trait for (closure)types that can be binded as C function or as method in metatable
 ///
 /// See [`State::new_closure`] [`Table::set_closure`]
