@@ -841,8 +841,8 @@ impl<'a, U: 'a, R: 'a, W> MethodRegistry<'a, U, R, W> {
     where
         ARGS: FromLuaMulti<'a> + Send + 'a,
         RET: ToLuaMulti + 'a,
-        M: Fn(&'a State, &'a U, ARGS) -> FUT + Sync + Send + 'static,
-        R: Deref<Target = U> + FromLua<'a> + Send + 'a,
+        M: Fn(&'a State, &'a U, ARGS) -> FUT + Send + 'static,
+        R: Deref<Target = U> + FromLua<'a> + 'a,
         FUT: core::future::Future<Output = RET> + Send + 'a,
     {
         self.0.raw_set(
@@ -865,8 +865,8 @@ impl<'a, U: 'a, R: 'a, W> MethodRegistry<'a, U, R, W> {
     where
         ARGS: FromLuaMulti<'a> + Send + 'a,
         RET: ToLuaMulti + 'a,
-        M: Fn(&'a State, &'a mut U, ARGS) -> FUT + Sync + Send + 'static,
-        W: DerefMut<Target = U> + FromLua<'a> + Send + 'a,
+        M: Fn(&'a State, &'a mut U, ARGS) -> FUT + Send + 'static,
+        W: DerefMut<Target = U> + FromLua<'a> + 'a,
         FUT: core::future::Future<Output = RET> + Send + 'a,
     {
         self.0.raw_set(
