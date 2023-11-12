@@ -8,6 +8,7 @@ use crate::marker::ArgRef;
 use crate::prelude::*;
 use crate::userdata::UserdataRegistry;
 
+pub mod net;
 #[cfg(all(feature = "thread"))]
 pub mod thread;
 

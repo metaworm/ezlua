@@ -1,6 +1,10 @@
 use ::tokio::runtime::Handle;
 use alloc::sync::Arc;
-use tokio::{sync::oneshot, task::JoinHandle};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    sync::oneshot,
+    task::JoinHandle,
+};
 
 use crate::{coroutine::CoroutineWithRef, prelude::*, userdata::UserDataTrans};
 
@@ -112,6 +116,9 @@ pub fn open(lua: &LuaState) -> LuaResult<LuaTable> {
         m.set("sync", sync)?;
     }
 
+    m.set("TcpListner", lua.register_usertype::<TcpListener>()?)?;
+    m.set("TcpStream", lua.register_usertype::<TcpStream>()?)?;
+
     Ok(m)
 }
 
@@ -129,31 +136,31 @@ impl<T: UserData> UserDataTrans<T> for RwLock<T> {
     }
 }
 
-impl<'a, T: UserData<Trans = RwLock<T>>> FromLua<'a> for RwLockReadGuard<'a, T> {
+impl<'a, T: UserData<Trans = RwLock<T>>> FromLua<'a> for &'a RwLock<T> {
     fn from_lua(lua: &'a LuaState, val: ValRef<'a>) -> LuaResult<Self> {
         val.check_safe_index()?;
         val.as_userdata()
             .and_then(|u| u.userdata_ref::<T>())
             .ok_or("userdata not match")
-            .lua_result()?
-            .try_read()
             .lua_result()
             // Safety: check_safe_index
             .map(|x| unsafe { core::mem::transmute(x) })
     }
 }
 
+impl<'a, T: UserData<Trans = RwLock<T>>> FromLua<'a> for RwLockReadGuard<'a, T> {
+    fn from_lua(lua: &'a LuaState, val: ValRef<'a>) -> LuaResult<Self> {
+        <&'a RwLock<T> as FromLua>::from_lua(lua, val)?
+            .try_read()
+            .lua_result()
+    }
+}
+
 impl<'a, T: UserData<Trans = RwLock<T>>> FromLua<'a> for RwLockWriteGuard<'a, T> {
     fn from_lua(lua: &'a LuaState, val: ValRef<'a>) -> LuaResult<Self> {
-        val.check_safe_index()?;
-        val.as_userdata()
-            .and_then(|u| u.userdata_ref::<T>())
-            .ok_or("userdata not match")
-            .lua_result()?
+        <&'a RwLock<T> as FromLua>::from_lua(lua, val)?
             .try_write()
             .lua_result()
-            // Safety: check_safe_index
-            .map(|x| unsafe { core::mem::transmute(x) })
     }
 }
 
@@ -229,6 +236,7 @@ impl UserData for UnboundedSender<Reference> {
             this.send(lua.registry().reference(val)?).lua_result()
         })?;
         methods.set_closure("same_channel", Self::same_channel)?;
+        methods.add_async_method("closed", |_, this, ()| async move { this.closed().await })?;
 
         Ok(())
     }
@@ -351,4 +359,33 @@ pub fn wrap_receiver<'l, T: ToLuaMulti + Send + 'l + 'static>(
             }
         }
     })
+}
+
+impl UserData for TcpListener {
+    fn getter(fields: UserdataRegistry<Self>) -> LuaResult<()> {
+        fields.set_closure("local_addr", Self::local_addr)?;
+        Ok(())
+    }
+
+    fn methods(methods: UserdataRegistry<Self>) -> LuaResult<()> {
+        methods.set_async_closure("accept", Self::accept)?;
+        Ok(())
+    }
+
+    fn metatable(mt: UserdataRegistry<Self>) -> LuaResult<()> {
+        mt.set_async_closure("bind", Self::bind::<std::net::SocketAddr>)?;
+        Ok(())
+    }
+}
+
+impl UserData for TcpStream {
+    fn getter(fields: UserdataRegistry<Self>) -> LuaResult<()> {
+        fields.set_closure("local_addr", Self::local_addr)?;
+        fields.set_closure("peer_addr", Self::peer_addr)?;
+        Ok(())
+    }
+
+    fn methods(methods: UserdataRegistry<Self>) -> LuaResult<()> {
+        Ok(())
+    }
 }
