@@ -3,7 +3,9 @@ use crate::{
     error::{Error, Result},
     ffi::{self, lua_State, lua_resetthread},
     luaapi::*,
+    marker::OwnedUserdata,
     state::{StackGuard, State},
+    userdata::UserData,
     value::*,
 };
 
@@ -206,6 +208,25 @@ impl State {
         fun: F,
     ) -> Result<Function> {
         self.bind_async_closure(move |lua, base| fun.call_method(lua, base))
+    }
+
+    #[inline(always)]
+    pub fn bind_async<'l, R: ToLuaMulti + 'l, F: Future<Output = R> + Send + 'static>(
+        &self,
+        fun: F,
+    ) -> Result<LuaUserData> {
+        struct AsyncWrapper<F>(F);
+
+        impl<R: ToLuaMulti, F: Future<Output = R> + Send + 'static> UserData for AsyncWrapper<F> {
+            const TYPE_NAME: &'static str = "ezlua::AsyncWrapper";
+
+            fn metatable(mt: crate::userdata::UserdataRegistry<Self>) -> Result<()> {
+                mt.set_async_closure("__call", |OwnedUserdata::<Self>(this)| this.0)?;
+                Ok(())
+            }
+        }
+
+        self.new_userdata(AsyncWrapper(fun))
     }
 
     #[doc(hidden)]
