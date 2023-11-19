@@ -1,4 +1,13 @@
 
+## v0.4.4
+
+- Improve builtin bindings
+- Improve the implementation to async bindings
+- Added `ValRef::tostring`, which corresponds to the tostring function in lua
+- Added `LuaState::bind_async`, which can bind an async block as a lua userdata, and release the ownership after one call
+- Added bindings to `bytes` crate
+- Added bindings to `TcpListener` `TcpStream`
+
 ## v0.4.3
 
 - Bugfix: memory leak
