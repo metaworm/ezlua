@@ -478,7 +478,7 @@ pub mod unsafe_impl {
             if metatable.is_none_or_nil() {
                 let mt = self.new_table_with_size(0, 4)?;
                 self.balance_with(|_| callback(&mt))?;
-                debug_assert_eq!(self.type_of(mt.index), Type::Table);
+                debug_assert_eq!(mt.type_of(), Type::Table);
 
                 if self.get_field(mt.index, crate::cstr!("__name")) == Type::String {
                     self.push_value(mt.index);

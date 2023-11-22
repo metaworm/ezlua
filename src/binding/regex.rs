@@ -192,7 +192,7 @@ mod bytes {
     }
 
     impl UserData for Regex {
-        const TYPE_NAME: &'static str = "Regex";
+        const TYPE_NAME: &'static str = "RegexBytes";
 
         fn methods(mt: UserdataRegistry<Self>) -> Result<()> {
             mt.set_closure("shortest_match", Regex::shortest_match)?;

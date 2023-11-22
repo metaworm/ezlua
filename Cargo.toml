@@ -12,15 +12,16 @@ keywords = ["lua", "scripting", "nostd", "async"]
 categories = ["api-bindings", "no-std"]
 
 [features]
-default = ['std', 'vendored', 'log', 'serde']
+default = ['std', 'log', 'serde']
 vendored = ['lua-src']
-thread = ['std', 'vendored']
+thread = ['std']
 json = ['serde_json', 'serde']
 std = ['bitflags']
 unsafe_send_sync = []
 async = ['unsafe_send_sync']
 compat = []
 tokio = ['async', 'dep:tokio']
+build_dylib = ['vendored']
 
 [dependencies]
 libc = '0.2' 

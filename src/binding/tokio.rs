@@ -34,6 +34,10 @@ impl UserData for TokioTask {
 }
 
 impl UserData for Handle {
+    fn metatable_key() -> MetatableKey {
+        Self::METATABLE_KEY
+    }
+
     fn methods(methods: UserdataRegistry<Self>) -> LuaResult<()> {
         methods.set_closure("spawn", |this: &Self, routine: Coroutine| TokioTask {
             join: this.spawn(async move {
