@@ -45,17 +45,21 @@ impl Drop for LuaInner {
 
 impl State {
     pub(crate) fn lua_inner(&self) -> ArcLuaInner {
+        self.try_lua_inner().expect("main state pointer not set")
+    }
+
+    pub(crate) fn try_lua_inner(&self) -> Option<ArcLuaInner> {
         match self
             .registry()
-            .get(Value::light_userdata(Lua::new as *const ()))
+            .get(Value::light_userdata(self.main_state().to_pointer()))
             .expect("get")
             .into_value()
         {
             Value::LightUserdata(p) => unsafe {
                 Arc::increment_strong_count(p);
-                Arc::from_raw(p as *const LuaInner)
+                Some(Arc::from_raw(p as *const LuaInner))
             },
-            _ => panic!("main state pointer not set"),
+            _ => None,
         }
     }
 }

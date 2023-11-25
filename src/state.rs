@@ -118,7 +118,7 @@ pub mod unsafe_impl {
     use super::*;
     use crate::{
         luaapi::{GCMode, GcOption, UnsafeLuaApi},
-        value::{Function, LuaString, Table},
+        value::{Function, LuaString, Table, LuaThread},
     };
 
     impl<'a> Drop for StackGuard<'a> {
@@ -356,11 +356,16 @@ pub mod unsafe_impl {
         }
 
         /// Get the lua global table
-        #[inline(always)]
         pub fn global(&self) -> Table {
             self.check_stack(1).expect("stack");
             self.raw_geti(LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
-            self.top_val().try_into().expect("table")
+            self.top_val().try_into().expect("global table")
+        }
+
+        pub fn main_state(&self) -> LuaThread {
+            self.check_stack(1).expect("stack");
+            self.raw_geti(LUA_REGISTRYINDEX, LUA_RIDX_MAINTHREAD);
+            self.top_val().try_into().expect("main thread")
         }
 
         /// Returns the amount of memory (in bytes) currently used inside this Lua state

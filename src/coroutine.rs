@@ -12,7 +12,7 @@ use crate::{
 };
 
 pub struct Coroutine {
-    inner: ArcLuaInner,
+    inner: Option<ArcLuaInner>,
     pub(crate) state: State,
     nres: i32,
 }
@@ -50,7 +50,11 @@ impl Coroutine {
         state.push_thread();
         state.raw_setp(LUA_REGISTRYINDEX, l);
 
-        let inner = state.lua_inner();
+        let inner = state.try_lua_inner();
+        #[cfg(feature = "log")]
+        if inner.is_none() {
+            log::warn!("lua inner is not available");
+        }
         Self {
             inner,
             state,
