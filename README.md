@@ -23,7 +23,7 @@ Ergonomic, efficient and Zero-cost rust bindings to Lua5.4
 - Efficient: no auxiliary stack, support reference type conversion
 - [Builtin bindings](https://ezlua-types.vercel.app/) to most commonly used rust std functions and types
 - Mutilple thread support
-- [ ] nostd support
+- nostd support
 
 ## Limits
 

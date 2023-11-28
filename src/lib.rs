@@ -1,14 +1,13 @@
 #![doc = include_str!("../README.md")]
 #![no_std]
 #![feature(
-    thread_id_value,
     macro_metavar_expr,
     const_type_name,
-    file_set_times,
     associated_type_defaults,
     async_closure,
     box_into_inner
 )]
+#![cfg_attr(feature = "std", feature(thread_id_value, file_set_times,))]
 #![allow(dead_code, unused_variables)]
 
 extern crate alloc;

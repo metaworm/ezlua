@@ -1,9 +1,9 @@
 //! Contains definitions from `lua.h`.
 
-use std::marker::{PhantomData, PhantomPinned};
-use std::mem;
-use std::os::raw::{c_char, c_double, c_int, c_uchar, c_ushort, c_void};
-use std::ptr;
+use core::ffi::{c_char, c_double, c_int, c_uchar, c_ushort, c_void};
+use core::marker::{PhantomData, PhantomPinned};
+use core::mem;
+use core::ptr;
 
 // Mark for precompiled code (`<esc>Lua`)
 pub const LUA_SIGNATURE: &[u8] = b"\x1bLua";
@@ -427,7 +427,7 @@ pub unsafe fn lua_isnoneornil(L: *mut lua_State, n: c_int) -> c_int {
 
 #[inline(always)]
 pub unsafe fn lua_pushliteral(L: *mut lua_State, s: &'static str) -> *const c_char {
-    use std::ffi::CString;
+    use alloc::ffi::CString;
     let c_str = CString::new(s).unwrap();
     lua_pushlstring(L, c_str.as_ptr(), c_str.as_bytes().len())
 }
