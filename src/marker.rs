@@ -1,16 +1,15 @@
 //! Helpers to simplify the type conversion between rust and lua
 
-use core::cell::RefCell;
-
 use alloc::string::ToString;
 use alloc::{boxed::Box, vec::Vec};
+use core::{cell::RefCell, fmt::Debug, str::FromStr as CoreFromStr};
 
 use crate::{
     convert::{FromLua, Index, ToLua, ToLuaMulti},
-    error::{Error, Result},
+    error::{Error, Result, ToLuaResult},
     ffi,
     luaapi::{Reference, UnsafeLuaApi},
-    prelude::{ArcLuaInner, LuaType, ToLuaResult},
+    prelude::{ArcLuaInner, LuaType},
     state::State,
     userdata::{UserData, UserDataTrans},
     value::{LuaUserData, ValRef, Value},
@@ -310,4 +309,31 @@ impl<'a, T: UserData> FromLua<'a> for OwnedUserdata<T> {
             .map(<T::Trans as UserDataTrans<_>>::INTO_INNER)
             .map(OwnedUserdata)
     }
+}
+
+pub struct FromStr<T: CoreFromStr>(pub T);
+
+impl<'a, T: CoreFromStr> FromLua<'a> for FromStr<T>
+where
+    T::Err: Debug,
+{
+    const TYPE_NAME: &'static str = core::any::type_name::<T>();
+
+    #[inline(always)]
+    fn from_lua(lua: &'a State, val: ValRef<'a>) -> Result<FromStr<T>> {
+        T::from_str(&val.tostring()).lua_result().map(Self)
+    }
+}
+
+pub struct ScopeUserdata<'a>(pub(crate) LuaUserData<'a>);
+
+impl Drop for ScopeUserdata<'_> {
+    fn drop(&mut self) {
+        let _ = self.0 .0.call_close_and_remove_metatable();
+    }
+}
+
+impl ToLua for &ScopeUserdata<'_> {
+    const __PUSH: Option<fn(Self, &State) -> Result<()>> =
+        Some(|this, lua| <&ValRef as ToLua>::__PUSH.unwrap()(&this.0 .0, lua));
 }

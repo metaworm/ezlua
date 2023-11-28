@@ -20,7 +20,7 @@ impl Lua {
         result
             .registry()
             .set(
-                Value::light_userdata(Lua::new as *const ()),
+                Value::light_userdata(result.main_state().to_pointer()),
                 Value::light_userdata(Arc::as_ptr(&result.0)),
             )
             .expect("init luainner");

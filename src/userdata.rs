@@ -17,6 +17,7 @@ use crate::{
         LUA_REGISTRYINDEX, LUA_TUSERDATA,
     },
     luaapi::Type,
+    prelude::ScopeUserdata,
     state::State,
     value::*,
 };
@@ -581,6 +582,11 @@ impl State {
     }
 
     #[inline(always)]
+    pub fn scope_userdata<T: UserData>(&self, data: T) -> Result<ScopeUserdata> {
+        self.new_userdata(data).map(ScopeUserdata)
+    }
+
+    #[inline(always)]
     pub fn new_userdata_with_values<T: UserData, R: ToLua, const N: usize>(
         &self,
         data: T,
@@ -686,7 +692,7 @@ impl State {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct MethodRegistry<'a, U: 'a, R, W>(pub &'a Table<'a>, PhantomData<(U, R, W)>);
 
 impl<'a, U: 'a, R, W> Deref for MethodRegistry<'a, U, R, W> {
