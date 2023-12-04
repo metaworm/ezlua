@@ -27,7 +27,11 @@ use core::{
 };
 
 #[cfg(feature = "std")]
-use std::{collections::HashMap, hash::Hash};
+use std::{
+    collections::HashMap,
+    ffi::{OsStr, OsString},
+    hash::Hash,
+};
 
 pub type Index = i32;
 pub type MetatableKey = fn(&Table) -> Result<()>;
@@ -103,12 +107,6 @@ impl ToLua for &[u8] {
     const __PUSH: Option<fn(Self, &State) -> Result<()>> = Some(|this, s| Ok(s.push_bytes(this)));
 }
 
-#[cfg(feature = "std")]
-impl ToLua for &std::ffi::OsStr {
-    const __PUSH: Option<fn(Self, &State) -> Result<()>> =
-        Some(|this, s: &State| Ok(s.push_bytes(this.to_string_lossy().as_bytes())));
-}
-
 macro_rules! impl_as_bytes {
     ($t:ty) => {
         impl ToLua for $t {
@@ -140,6 +138,34 @@ impl_as_str!(CString);
 impl ToLua for &CStr {
     const __PUSH: Option<fn(Self, &State) -> Result<()>> =
         Some(|this, s: &State| Ok(s.push_bytes(this.to_bytes())));
+}
+
+#[cfg(feature = "std")]
+impl ToLua for &OsStr {
+    const __PUSH: Option<fn(Self, &State) -> Result<()>> =
+        Some(|this, s: &State| Ok(s.push_bytes(this.as_encoded_bytes())));
+}
+
+#[cfg(feature = "std")]
+impl ToLua for OsString {
+    const __PUSH: Option<fn(Self, &State) -> Result<()>> =
+        Some(|this, s: &State| Ok(s.push_bytes(this.as_encoded_bytes())));
+}
+
+#[cfg(feature = "std")]
+impl<'a> FromLua<'a> for &'a OsStr {
+    fn from_lua(lua: &'a State, val: ValRef<'a>) -> Result<Self> {
+        <&'a str>::from_lua(lua, val).map(OsStr::new)
+    }
+}
+
+#[cfg(feature = "std")]
+impl<'a> FromLua<'a> for OsString {
+    fn from_lua(lua: &'a State, val: ValRef<'a>) -> Result<Self> {
+        Ok(<&'a str>::from_lua(lua, val)
+            .map(OsStr::new)?
+            .to_os_string())
+    }
 }
 
 impl ToLua for Value<'_> {

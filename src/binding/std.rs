@@ -331,7 +331,6 @@ pub mod process {
 }
 
 pub fn extend_os(s: &LuaState) -> Result<()> {
-    use std::ffi::OsString;
     use std::fs::DirEntry;
     use std::fs::FileType;
 
@@ -352,12 +351,6 @@ pub fn extend_os(s: &LuaState) -> Result<()> {
     os.set_closure("chdir", std::env::set_current_dir::<&str>)?;
     os.set_closure("getcwd", std::env::current_dir)?;
     os.set_closure("getexe", std::env::current_exe)?;
-
-    impl ToLua for OsString {
-        fn to_lua<'a>(self, s: &'a LuaState) -> LuaResult<ValRef<'a>> {
-            self.to_string_lossy().to_lua(s)
-        }
-    }
 
     impl ToLua for FileType {
         fn to_lua<'a>(self, s: &'a LuaState) -> LuaResult<ValRef<'a>> {
@@ -498,19 +491,19 @@ pub fn extend_string(s: &LuaState) -> Result<()> {
     Ok(())
 }
 
-pub fn init_global(s: &LuaState) -> Result<()> {
-    extend_os(s)?;
-    extend_string(s)?;
+pub fn init_global(lua: &LuaState) -> Result<()> {
+    extend_os(lua)?;
+    extend_string(lua)?;
     #[cfg(feature = "thread")]
-    s.register_module("thread", thread::init, true)?;
+    lua.register_module("thread", thread::init, true)?;
 
-    let g = s.global();
+    let g = lua.global();
     g.set_closure("readfile", |path: &str| {
         NilError(std::fs::read(path).map(LuaBytes))
     })?;
     g.set(
         "__file__",
-        s.new_closure(|s: &LuaState| {
+        lua.new_closure(|s: &LuaState| {
             use crate::luaapi::UnsafeLuaApi;
 
             s.get_stack(1).and_then(|mut dbg| {
@@ -526,6 +519,12 @@ pub fn init_global(s: &LuaState) -> Result<()> {
     )?;
     g.set_closure("writefile", std::fs::write::<&std::path::Path, &[u8]>)?;
     g.set_closure("closeobject", ValRef::close_and_remove_metatable)?;
+    g.set(
+        "array",
+        lua.new_function(|lua, table: ValRef| {
+            table.set_metatable(lua.array_metatable()?).map(|_| table)
+        })?,
+    )?;
 
     Ok(())
 }
