@@ -138,3 +138,64 @@ macro_rules! impl_toluamulti {
         }
     };
 }
+
+#[macro_export]
+macro_rules! impl_fromlua_as_bitflags {
+    ($t:ty) => {
+        impl $crate::prelude::FromLua<'_> for $t {
+            fn from_lua(
+                lua: &$crate::prelude::LuaState,
+                val: $crate::prelude::ValRef,
+            ) -> $crate::prelude::LuaResult<Self> {
+                <$crate::marker::BitFlags<Self> as $crate::prelude::FromLua>::from_lua(lua, val)
+                    .map(|s| s.0)
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! impl_tolua_as_bitflags {
+    ($t:ty) => {
+        impl $crate::prelude::ToLua for $t {
+            fn to_lua<'a>(
+                self,
+                lua: &'a $crate::prelude::LuaState,
+            ) -> $crate::prelude::LuaResult<$crate::prelude::ValRef<'a>> {
+                $crate::prelude::ToLua::to_lua($crate::marker::BitFlags(self), lua)
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! bitflags_table {
+    ($fn:ident => $t:ty) => {
+        fn $fn(
+            lua: &$crate::prelude::LuaState,
+        ) -> $crate::prelude::LuaResult<$crate::prelude::LuaTable> {
+            use ::bitflags::{Flag, Flags};
+
+            let t = lua.new_table()?;
+            for flag in <$t>::FLAGS {
+                t.set(flag.name(), flag.value().bits())?;
+                t.set(flag.value().bits(), flag.name())?;
+            }
+            $crate::prelude::LuaResult::Ok(t)
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! enum_table {
+    ($fn:ident => $(($t:expr, $v:expr),)+) => {
+        fn $fn(
+            lua: &$crate::prelude::LuaState,
+        ) -> $crate::prelude::LuaResult<$crate::prelude::LuaTable> {
+            let t = lua.new_table()?;
+            $(t.set($t, $v)?;)+
+            $(t.set($v, $t)?;)+
+            $crate::prelude::LuaResult::Ok(t)
+        }
+    };
+}

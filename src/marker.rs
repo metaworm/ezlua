@@ -337,3 +337,33 @@ impl ToLua for &ScopeUserdata<'_> {
     const __PUSH: Option<fn(Self, &State) -> Result<()>> =
         Some(|this, lua| <&ValRef as ToLua>::__PUSH.unwrap()(&this.0 .0, lua));
 }
+
+#[cfg(feature = "bitflags")]
+pub struct BitFlags<T: bitflags::Flags>(pub T);
+
+#[cfg(feature = "bitflags")]
+impl<'a, T: bitflags::Flags> FromLua<'a> for BitFlags<T>
+where
+    T::Bits: FromLua<'a>,
+{
+    const TYPE_NAME: &'static str = core::any::type_name::<T>();
+
+    #[inline(always)]
+    fn from_lua(lua: &'a State, val: ValRef<'a>) -> Result<Self> {
+        T::from_bits(T::Bits::from_lua(lua, val)?)
+            .ok_or("invalid bitflags")
+            .lua_result()
+            .map(Self)
+    }
+}
+
+#[cfg(feature = "bitflags")]
+impl<T: bitflags::Flags> ToLua for BitFlags<T>
+where
+    T::Bits: ToLua,
+{
+    #[inline(always)]
+    fn to_lua<'a>(self, lua: &'a State) -> Result<ValRef<'a>> {
+        self.0.bits().to_lua(lua)
+    }
+}
