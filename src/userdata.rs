@@ -578,7 +578,7 @@ impl State {
     /// Create userdata
     #[inline(always)]
     pub fn new_userdata<T: UserData>(&self, data: T) -> Result<LuaUserData> {
-        self.new_userdata_with_values::<T, (), 0>(data, [])
+        self.new_userdata_with_values(data, ())
     }
 
     #[inline(always)]
@@ -587,17 +587,20 @@ impl State {
     }
 
     #[inline(always)]
-    pub fn new_userdata_with_values<T: UserData, R: ToLua, const N: usize>(
+    pub fn new_userdata_with_values<T: UserData, R: ToLuaMulti>(
         &self,
         data: T,
-        refs: [R; N],
+        refs: R,
     ) -> Result<LuaUserData> {
-        let mut n = data.uservalue_count(self);
-        self.push_udatauv(data, N as _)?;
+        use crate::luaapi::UnsafeLuaApi;
+
+        let n = data.uservalue_count(self);
+        let base = self.stack_top();
+        refs.push_multi(self)?;
+        self.push_udatauv(data, self.stack_top() - base)?;
         let ud = LuaUserData::try_from(self.top_val())?;
-        for r in refs.into_iter() {
-            n += 1;
-            ud.set_iuservalue(n, r)?;
+        while self.stack_top() > base {
+            self.set_iuservalue(ud.index, n + self.stack_top() - base);
         }
         Ok(ud)
     }

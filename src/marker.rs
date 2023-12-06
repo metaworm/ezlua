@@ -143,22 +143,16 @@ impl<T: ToLuaMulti> UserData for StaticIter<'_, T> {
         methods.add_method_mut("nth", |_, this, i: Option<usize>| {
             i.and_then(|i| this.iter.nth(i)).ok_or(())
         })?;
-        methods.set(
-            "last",
-            methods.state().new_closure1(|_, this: LuaUserData| {
-                this.take::<Self>()
-                    .and_then(|this| this.into_inner().iter.last())
-                    .ok_or(())
-            })?,
-        )?;
-        methods.set(
-            "count",
-            methods.state().new_closure1(|_, this: LuaUserData| {
-                this.take::<Self>()
-                    .map(|this| this.into_inner().iter.count())
-                    .ok_or(())
-            })?,
-        )?;
+        methods.set_function("last", |_, this: LuaUserData| {
+            this.take::<Self>()
+                .and_then(|this| this.into_inner().iter.last())
+                .ok_or(())
+        })?;
+        methods.set_function("count", |_, this: LuaUserData| {
+            this.take::<Self>()
+                .map(|this| this.into_inner().iter.count())
+                .ok_or(())
+        })?;
         methods.add_method_mut("size_hint", |_, this, ()| this.iter.size_hint())?;
 
         Ok(())

@@ -14,6 +14,10 @@ impl UserData for Test {
     const INDEX_USERVALUE: bool = true;
     const RAW_LEN: bool = true;
 
+    fn uservalue_count(&self, _: &LuaState) -> i32 {
+        1
+    }
+
     fn methods(mt: UserdataRegistry<Self>) -> LuaResult<()> {
         mt.set_closure("inc", |mut this: RefMut<Self>| this.a += 1)?;
         mt.set_closure("reset", |this: &Self::Trans| this.borrow_mut().a = 0)?;
@@ -91,6 +95,14 @@ fn userdata() {
     s.do_string("assert(uv.a == 123)", None).unwrap();
 
     s.do_string("print(uv.not_exsits)", None).unwrap_err();
+
+    let ud = s
+        .new_userdata_with_values(Test { a: 0 }, (s.global(), 2333))
+        .unwrap();
+    ud.set_iuservalue(1, 1234321).unwrap();
+    assert_eq!(ud.get_iuservalue(1).unwrap().to_integer(), 1234321);
+    assert!(ud.get_iuservalue(2).unwrap().raw_equal(&s.global()));
+    assert_eq!(ud.get_iuservalue(3).unwrap().to_integer(), 2333);
 }
 
 #[test]

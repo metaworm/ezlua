@@ -30,7 +30,7 @@ impl UserData for Captures<'_> {
                 LuaValue::String(s) => this.name(s.to_str().unwrap_or_default()),
                 _ => None,
             }
-            .map(|m| s.new_userdata_with_values(m, [ArgRef(1)]))
+            .map(|m| s.new_userdata_with_values(m, ArgRef(1)))
             .ok_or(())
         })?;
 
@@ -62,7 +62,7 @@ impl UserData for Regex {
         mt.add_method("find", |s, this, (text, pos): (&str, Option<usize>)| {
             pos.map(|p| this.find_at(text, p))
                 .unwrap_or_else(|| this.find(text))
-                .map(|res| s.new_userdata_with_values(res, [ArgRef(1), ArgRef(2)]))
+                .map(|res| s.new_userdata_with_values(res, (ArgRef(1), ArgRef(2))))
                 .ok_or(())
         })?;
         // https://docs.rs/regex/latest/regex/struct.Regex.html#method.find_iter
@@ -70,12 +70,12 @@ impl UserData for Regex {
             let iter = this.find_iter(text);
             s.new_iter(
                 iter.map(|m| (m.as_str(), m.start() + 1, m.end())),
-                [ArgRef(2)],
+                ArgRef(2),
             )
         })?;
         // https://docs.rs/regex/latest/regex/struct.Regex.html#method.split
         mt.add_method("gsplit", |s, this, text: &str| unsafe {
-            s.new_iter(this.split(text), [ArgRef(2)])
+            s.new_iter(this.split(text), ArgRef(2))
         })?;
         mt.add_method("split", |s, this, text: &str| {
             s.new_val(IterVec(this.split(text)))
@@ -103,7 +103,7 @@ impl UserData for Regex {
         mt.add_method("capture", |s, this, (text, pos): (_, Option<_>)| {
             pos.map(|p| this.captures_at(text, p))
                 .unwrap_or_else(|| this.captures(text))
-                .map(|cap| s.new_userdata_with_values(cap, [ArgRef(1), ArgRef(2)]))
+                .map(|cap| s.new_userdata_with_values(cap, (ArgRef(1), ArgRef(2))))
                 .ok_or(())
         })?;
         mt.add_method("match", |_, this, text: &str| {
@@ -168,7 +168,7 @@ mod bytes {
                     LuaValue::String(s) => this.name(s.to_str().unwrap_or_default()),
                     _ => None,
                 }
-                .map(|m| s.new_userdata_with_values(m, [ArgRef(1)]))
+                .map(|m| s.new_userdata_with_values(m, ArgRef(1)))
                 .ok_or(())
             })?;
 
@@ -199,18 +199,18 @@ mod bytes {
             mt.add_method("find", |s, this, (text, pos): (_, Option<_>)| {
                 pos.map(|p| this.find_at(text, p))
                     .unwrap_or_else(|| this.find(text))
-                    .map(|res| s.new_userdata_with_values(res, [ArgRef(1), ArgRef(2)]))
+                    .map(|res| s.new_userdata_with_values(res, (ArgRef(1), ArgRef(2))))
                     .ok_or(())
             })?;
             mt.add_method("gmatch", |s, this, text| unsafe {
                 let iter = this.find_iter(text);
                 s.new_iter(
                     iter.map(|m| (m.as_bytes(), m.start() + 1, m.end())),
-                    [ArgRef(2)],
+                    ArgRef(2),
                 )
             })?;
             mt.add_method("gsplit", |s, this, text| unsafe {
-                s.new_iter(this.split(text), [ArgRef(2)])
+                s.new_iter(this.split(text), ArgRef(2))
             })?;
             mt.add_method("split", |s, this, text| {
                 s.new_val(IterVec(this.split(text)))
@@ -234,7 +234,7 @@ mod bytes {
             mt.add_method("capture", |s, this, (text, pos): (_, Option<_>)| {
                 pos.map(|p| this.captures_at(text, p))
                     .unwrap_or_else(|| this.captures(text))
-                    .map(|cap| s.new_userdata_with_values(cap, [ArgRef(1), ArgRef(2)]))
+                    .map(|cap| s.new_userdata_with_values(cap, (ArgRef(1), ArgRef(2))))
                     .ok_or(())
             })?;
             mt.add_method("match", |_, this, text| {

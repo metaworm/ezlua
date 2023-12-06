@@ -718,27 +718,55 @@ impl<'l> Table<'l> {
         self.raw_set(name, self.state.new_closure(func)?)
             .map(|_| self)
     }
+
+    /// Alias to `self.set(name, lua.new_function(func))`
+    #[inline(always)]
+    pub fn set_function<
+        'a,
+        K: ToLua,
+        ARGS: FromLuaMulti<'l>,
+        RET: ToLuaMulti + 'l,
+        F: Fn(&'l State, ARGS) -> RET + 'static,
+    >(
+        &self,
+        name: K,
+        func: F,
+    ) -> Result<&Self> {
+        self.raw_set(name, self.state.new_function(func)?)
+            .map(|_| self)
+    }
 }
 
 impl<'a> Function<'a> {
-    #[inline]
+    #[inline(always)]
     pub fn get_upvalue(&self, i: Index) -> Result<Option<ValRef<'a>>> {
+        self.get_upvalue_name(i).map(|x| x.map(|x| x.0))
+    }
+
+    #[inline]
+    pub fn get_upvalue_name(&self, i: Index) -> Result<Option<(ValRef<'a>, &'a str)>> {
         Ok(self
             .state
             .get_upvalue(self.index, i)
-            .map(|_| self.state.top_val()))
+            .map(|name| (self.state.top_val(), name)))
     }
 
-    #[inline]
-    pub fn get_upvalue_name(&self, i: Index) -> Result<Option<&'a str>> {
-        Ok(self.state.get_upvalue(self.index, i))
-    }
-
-    #[inline]
+    #[inline(always)]
     pub fn set_upvalue(&self, i: Index, val: impl ToLua) -> Result<()> {
         self.state.push(val)?;
         self.state.set_upvalue(self.index, i);
         Ok(())
+    }
+
+    pub fn upvalues(&self) -> Result<Vec<ValRef<'a>>> {
+        let mut result = Vec::new();
+        for i in 1.. {
+            let Some(x) = self.get_upvalue(i)? else {
+                break;
+            };
+            result.push(x);
+        }
+        Ok(result)
     }
 
     /// Dumps the function as a binary chunk.
@@ -794,6 +822,14 @@ impl<'a> LuaUserData<'a> {
     pub fn get_iuservalue(&self, n: i32) -> Result<ValRef<'a>> {
         self.state.get_iuservalue(self.index, n);
         Ok(self.state.top_val())
+    }
+
+    pub fn uservalues(&self) -> Result<Vec<ValRef>> {
+        let mut result = Vec::new();
+        while self.state.get_uservalue(self.index) != Type::None {
+            result.push(self.state.top_val());
+        }
+        Ok(result)
     }
 
     /// Take the ownership, and subsequent access in lua is invalid

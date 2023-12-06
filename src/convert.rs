@@ -743,16 +743,10 @@ impl State {
     /// Create an iterator with non-static reference, you should ensure that these references
     /// is valid via the `refs` argument, which is be referenced by the iter closure's upvalues
     #[inline(always)]
-    pub unsafe fn new_iter<
-        'l,
-        R: ToLuaMulti + 'l,
-        I: Iterator<Item = R> + 'l,
-        REF: ToLua,
-        const C: usize,
-    >(
+    pub unsafe fn new_iter<'l, R: ToLuaMulti + 'l, I: Iterator<Item = R> + 'l, REF: ToLuaMulti>(
         &self,
         iter: I,
-        refs: [REF; C],
+        refs: REF,
     ) -> Result<LuaUserData<'_>> {
         self.new_userdata_with_values(
             StaticIter {
@@ -762,8 +756,10 @@ impl State {
         )
     }
 
-    /// Like [`State::new_iter`], and you can specify a map function
+    /// Like [`State::new_iter`], and you can specify a map function.
+    /// Deprecated: use coroutine for cross-state scene
     #[inline(always)]
+    #[deprecated]
     pub unsafe fn new_iter_map<
         'l,
         R: 'l,

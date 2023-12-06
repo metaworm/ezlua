@@ -66,7 +66,7 @@ impl UserData for LuaMutex {
         mt.as_deref()
             .add_deref("is_poisoned", Mutex::<()>::is_poisoned)?;
         mt.add_method("lock", |s, this, ()| {
-            s.new_userdata_with_values(LuaMutexGaurd(this.0.lock().lua_result()?), [ArgRef(1)])
+            s.new_userdata_with_values(LuaMutexGaurd(this.0.lock().lua_result()?), ArgRef(1))
         })?;
         mt.add_method("try_lock", |s, this, ()| {
             NilError(
@@ -74,7 +74,7 @@ impl UserData for LuaMutex {
                     .try_lock()
                     .lua_result()
                     .map(LuaMutexGaurd)
-                    .map(|guard| s.new_userdata_with_values(guard, [ArgRef(1)])),
+                    .map(|guard| s.new_userdata_with_values(guard, ArgRef(1))),
             )
         })?;
 
