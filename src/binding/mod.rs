@@ -2,6 +2,8 @@
 
 use crate::{error::Result, state::State};
 
+#[cfg(feature = "chrono")]
+pub mod chrono;
 #[cfg(feature = "std")]
 pub mod fs;
 #[cfg(feature = "json")]
