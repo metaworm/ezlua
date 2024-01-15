@@ -2,7 +2,7 @@ use crate::prelude::*;
 use ::chrono::prelude::*;
 use alloc::string::ToString;
 use chrono::{Days, Duration, Months};
-use core::fmt::Display;
+use core::{fmt::Display, str::FromStr};
 
 impl UserData for Duration {
     fn getter(fields: UserdataRegistry<Self>) -> LuaResult<()> {
@@ -101,7 +101,17 @@ impl UserData for NaiveTime {
 
 impl UserData for NaiveDateTime {
     fn metatable(mt: UserdataRegistry<Self>) -> LuaResult<()> {
-        mt.set_closure("parse", |s, fmt| NaiveDateTime::parse_from_str(s, fmt))?;
+        mt.set_closure("parse", |s, fmt: Option<&str>| {
+            if let Some(fmt) = fmt {
+                NaiveDateTime::parse_from_str(s, fmt)
+            } else {
+                NaiveDateTime::from_str(s)
+            }
+        })?;
+        mt.set_closure("new", |d: &NaiveDate, t: &NaiveTime| {
+            NaiveDateTime::new(*d, *t)
+        })?;
+        mt.set_closure("__tostring", Self::to_string)?;
 
         Ok(())
     }

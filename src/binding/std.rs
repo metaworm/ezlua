@@ -183,10 +183,11 @@ pub mod time {
 
 pub mod process {
     use super::*;
-    #[cfg(not(feature = "parking_lot"))]
     use core::cell::RefCell;
-    use std::io::{Read, Write};
-    use std::process::{Child, Command, ExitStatus, Stdio};
+    use std::{
+        io::Read,
+        process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus, Stdio},
+    };
 
     enum ReadArg {
         Exact(usize),
@@ -217,6 +218,39 @@ pub mod process {
     }
 
     crate::impl_toluamulti!(ExitStatus as (bool, Option<i32>): |self| (self.success(), self.code()));
+
+    #[derive(derive_more::AsMut, derive_more::Into)]
+    struct LuaStdin(ChildStdin);
+
+    impl UserData for LuaStdin {
+        type Trans = RefCell<Self>;
+
+        fn methods(methods: UserdataRegistry<Self>) -> LuaResult<()> {
+            self::io::bind_write(methods)
+        }
+    }
+
+    #[derive(derive_more::AsMut, derive_more::Into)]
+    struct LuaStdout(ChildStdout);
+
+    impl UserData for LuaStdout {
+        type Trans = RefCell<Self>;
+
+        fn methods(methods: UserdataRegistry<Self>) -> LuaResult<()> {
+            self::io::bind_read(methods)
+        }
+    }
+
+    #[derive(derive_more::AsMut, derive_more::Into)]
+    struct LuaStderr(ChildStderr);
+
+    impl UserData for LuaStderr {
+        type Trans = RefCell<Self>;
+
+        fn methods(methods: UserdataRegistry<Self>) -> LuaResult<()> {
+            self::io::bind_read(methods)
+        }
+    }
 
     impl UserData for Command {
         #[cfg(feature = "parking_lot")]
@@ -300,15 +334,14 @@ pub mod process {
                     )
                 })
             })?;
-            mt.add_mut("write", |this: &mut Self, data: &[u8]| {
-                let stdin = this.stdin.as_mut().ok_or("stdin").lua_result()?;
-                stdin.write(data).lua_result()
+            mt.add_mut("take_stdin", |this: &mut Self| {
+                this.stdin.take().map(LuaStdin)
             })?;
-            mt.add_mut("read", |this: &mut Self, size: ReadArg| {
-                read_std(this.stdout.as_mut().ok_or("stdout").lua_result()?, size).lua_result()
+            mt.add_mut("take_stdout", |this: &mut Self| {
+                this.stdout.take().map(LuaStdout)
             })?;
-            mt.add_mut("read_error", |this: &mut Self, size: ReadArg| {
-                read_std(this.stderr.as_mut().ok_or("stderr").lua_result()?, size)
+            mt.add_mut("take_stderr", |this: &mut Self| {
+                this.stderr.take().map(LuaStderr)
             })?;
 
             fn read_std(r: &mut dyn Read, size: ReadArg) -> Result<LuaBytes> {
