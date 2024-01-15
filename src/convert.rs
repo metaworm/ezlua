@@ -650,19 +650,19 @@ impl_method!();
 macro_rules! impl_tuple {
     ($(($x:ident, $i:tt)) +) => (
         impl<$($x,)*> ToLuaMulti for ($($x,)*) where $($x: ToLua,)* {
-            const VALUE_COUNT: Option<usize> = Some(${count(x)});
+            const VALUE_COUNT: Option<usize> = Some(${count($x)});
 
             #[inline(always)]
             fn push_multi(self, s: &State) -> Result<usize> {
                 $(s.push(self.$i)?;)*
-                Ok(${count(x)} as _)
+                Ok(${count($x)} as _)
             }
         }
 
         impl<$($x,)*> ToLuaMulti for Option<($($x,)*)> where $($x: ToLua,)* {
             #[inline(always)]
             fn value_count(&self) -> Option<usize> {
-                self.as_ref().map(|_| ${count(x)})
+                self.as_ref().map(|_| ${count($x)})
             }
 
             #[inline(always)]
@@ -675,7 +675,7 @@ macro_rules! impl_tuple {
         }
 
         impl<'a, $($x,)*> FromLuaMulti<'a> for ($($x,)*) where $($x: FromLua<'a>,)* {
-            const COUNT: usize = ${count(x)};
+            const COUNT: usize = ${count($x)};
 
             #[inline(always)]
             fn from_lua_multi(s: &'a State, begin: Index) -> Result<Self> {
@@ -684,7 +684,7 @@ macro_rules! impl_tuple {
         }
 
         impl<'a, $($x,)*> FromLuaMulti<'a> for (&'a State, $($x,)*) where $($x: FromLua<'a>,)* {
-            const COUNT: usize = ${count(x)};
+            const COUNT: usize = ${count($x)};
 
             #[inline(always)]
             fn from_lua_multi(s: &'a State, begin: Index) -> Result<Self> {

@@ -174,10 +174,10 @@ macro_rules! bitflags_table {
         fn $fn(
             lua: &$crate::prelude::LuaState,
         ) -> $crate::prelude::LuaResult<$crate::prelude::LuaTable> {
-            use ::bitflags::{Flag, Flags};
+            use ::bitflags::Flag;
 
             let t = lua.new_table()?;
-            for flag in <$t>::FLAGS {
+            for flag in <$t as ::bitflags::Flags>::FLAGS {
                 t.set(flag.name(), flag.value().bits())?;
                 t.set(flag.value().bits(), flag.name())?;
             }
