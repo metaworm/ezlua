@@ -797,6 +797,7 @@ impl<'a> LuaUserData<'a> {
     /// Set uservalue
     #[inline]
     pub fn set_uservalue<V: ToLua>(&self, v: V) -> Result<()> {
+        self.check_type(Type::Userdata)?;
         self.state.push(v)?;
         self.state.set_uservalue(self.index);
         Ok(())
@@ -805,6 +806,7 @@ impl<'a> LuaUserData<'a> {
     /// Get the uservalue stored in uservalue
     #[inline]
     pub fn get_uservalue(&self) -> Result<ValRef<'a>> {
+        self.check_type(Type::Userdata)?;
         self.state.get_uservalue(self.index);
         Ok(self.state.top_val())
     }
@@ -812,6 +814,7 @@ impl<'a> LuaUserData<'a> {
     /// Set n-th uservalue
     #[inline]
     pub fn set_iuservalue<V: ToLua>(&self, n: i32, v: V) -> Result<()> {
+        self.check_type(Type::Userdata)?;
         self.state.push(v)?;
         self.state.set_iuservalue(self.index, n);
         Ok(())
@@ -820,11 +823,13 @@ impl<'a> LuaUserData<'a> {
     /// Get n-th uservalue stored in uservalue
     #[inline]
     pub fn get_iuservalue(&self, n: i32) -> Result<ValRef<'a>> {
+        self.check_type(Type::Userdata)?;
         self.state.get_iuservalue(self.index, n);
         Ok(self.state.top_val())
     }
 
     pub fn uservalues(&self) -> Result<Vec<ValRef>> {
+        self.check_type(Type::Userdata)?;
         let mut result = Vec::new();
         while self.state.get_uservalue(self.index) != Type::None {
             result.push(self.state.top_val());

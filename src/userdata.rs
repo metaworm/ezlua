@@ -595,14 +595,15 @@ impl State {
         use crate::luaapi::UnsafeLuaApi;
 
         let n = data.uservalue_count(self);
-        let base = self.stack_top();
-        refs.push_multi(self)?;
+        let mut base = self.stack_top();
+        self.push_multi(refs)?;
         self.push_udatauv(data, self.stack_top() - base)?;
-        let ud = LuaUserData::try_from(self.top_val())?;
+        base += 1;
+        self.insert(base);
         while self.stack_top() > base {
-            self.set_iuservalue(ud.index, n + self.stack_top() - base);
+            self.set_iuservalue(base, n + self.stack_top() - base);
         }
-        Ok(ud)
+        LuaUserData::try_from(self.top_val())
     }
 
     /// Create userdata with custom size

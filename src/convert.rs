@@ -737,6 +737,7 @@ macro_rules! impl_closure {
 impl State {
     #[inline(always)]
     pub(crate) fn push_multi<'a, T: ToLuaMulti>(&'a self, t: T) -> Result<usize> {
+        self.check_stack(t.value_count().unwrap_or(10) as _)?;
         t.push_multi(self)
     }
 
