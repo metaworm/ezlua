@@ -545,8 +545,9 @@ pub fn init_global(lua: &LuaState) -> Result<()> {
                 if dbg.source.is_null() {
                     return None;
                 }
-                let src = unsafe { std::ffi::CStr::from_ptr(dbg.source) };
-                let src = src.to_string_lossy();
+                let src = String::from_utf8_lossy(unsafe {
+                    core::slice::from_raw_parts(dbg.source as *const u8, dbg.srclen)
+                });
                 Some(src.strip_prefix("@").unwrap_or(&src).to_string())
             })
         })?,

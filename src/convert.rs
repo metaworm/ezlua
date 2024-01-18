@@ -752,41 +752,34 @@ impl State {
         self.new_userdata_with_values(
             StaticIter {
                 iter: Box::new(iter),
+                map: Box::new(|lua, res| lua.pushed(res)),
             },
             refs,
         )
     }
 
     /// Like [`State::new_iter`], and you can specify a map function.
-    /// Deprecated: use coroutine for cross-state scene
     #[inline(always)]
-    #[deprecated]
     pub unsafe fn new_iter_map<
         'l,
         R: 'l,
         I: Iterator<Item = R> + 'l,
         MR: ToLuaMulti + 'l,
-        M: Fn(&'l State, R) -> MR,
-        REF: ToLua,
-        const C: usize,
+        M: Fn(&'l State, R) -> MR + 'l,
+        REF: ToLuaMulti,
     >(
-        &'l self,
+        &self,
         iter: I,
         map: M,
-        refs: [REF; C],
-    ) -> Result<Function> {
-        let iter = RefCell::new(iter);
-        let val = self.bind_closure(
-            move |s| {
-                iter.try_borrow_mut()
-                    .map(|mut iter| iter.next().map(|x| map(s, x)).ok_or(()))
+        refs: REF,
+    ) -> Result<LuaUserData> {
+        self.new_userdata_with_values(
+            StaticIter::<'l, _> {
+                iter: Box::new(iter),
+                map: Box::new(move |lua, res| lua.pushed(map(core::mem::transmute(lua), res))),
             },
-            C,
-        )?;
-        for (i, v) in refs.into_iter().enumerate() {
-            val.set_upvalue(2 + i as i32, v)?;
-        }
-        Ok(val)
+            refs,
+        )
     }
 
     /// Bind a rust function(closure) with uniform argument types

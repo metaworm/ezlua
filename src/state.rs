@@ -118,7 +118,7 @@ pub mod unsafe_impl {
     use super::*;
     use crate::{
         luaapi::{GCMode, GcOption, UnsafeLuaApi},
-        value::{Function, LuaString, Table, LuaThread},
+        value::{Function, LuaString, LuaThread, Table},
     };
 
     impl<'a> Drop for StackGuard<'a> {

@@ -1057,16 +1057,13 @@ impl State {
     /// [-0, +1, -]
     fn load_buffer<F: AsRef<[u8]>>(&self, source: F, chunk_name: Option<&str>) -> i32 {
         let buffer = source.as_ref();
-        let chunk = match chunk_name {
-            Some(name) => name.as_ptr(),
-            None => ptr::null(),
-        };
+        let chunk = chunk_name.and_then(|name| CString::new(name).ok());
         unsafe {
             luaL_loadbuffer(
                 self.state,
                 buffer.as_ptr() as *const c_char,
                 buffer.len(),
-                chunk as *const c_char,
+                chunk.as_ref().map(|s| s.as_ptr()).unwrap_or(ptr::null()),
             )
         }
     }
