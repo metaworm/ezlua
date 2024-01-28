@@ -4,7 +4,7 @@ use crate::{
     error::{Error, Result, ToLuaResult},
     ffi::{self, *},
     luaapi::*,
-    marker::{IterMap, IterVec, Pushed, Strict},
+    marker::{IterVec, Pushed, Strict},
     prelude::StaticIter,
     state::State,
     userdata::{UserData, UserDataTrans},
@@ -20,7 +20,6 @@ use alloc::{
     vec::Vec,
 };
 use core::{
-    cell::RefCell,
     ffi::CStr,
     fmt::Debug,
     ops::{Deref, DerefMut},
@@ -232,7 +231,7 @@ impl<T: ToLua> ToLua for Vec<T> {
 #[cfg(feature = "std")]
 impl<K: ToLua, V: ToLua> ToLua for HashMap<K, V> {
     fn to_lua<'a>(self, s: &'a State) -> Result<ValRef<'a>> {
-        s.new_val(IterMap(self.into_iter()))
+        s.new_val(crate::prelude::IterMap(self.into_iter()))
     }
 }
 

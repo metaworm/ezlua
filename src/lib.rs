@@ -16,31 +16,16 @@ extern crate std;
 #[macro_use]
 extern crate derive_more;
 
-#[cfg(feature = "std")]
 #[macro_export]
 macro_rules! cstr {
     ($lit:expr) => {
-        unsafe {
-            ::std::ffi::CStr::from_ptr(
-                concat!($lit, "\0").as_ptr() as *const ::std::os::raw::c_char
-            )
-        }
+        unsafe { ::core::ffi::CStr::from_ptr(concat!($lit, "\0").as_ptr() as _) }
     };
 }
 
-#[cfg(not(feature = "std"))]
-pub use cstr_core::cstr;
-
-#[cfg(feature = "std")]
 pub mod str {
-    pub use std::ffi::CStr;
-    pub use std::ffi::CString;
-}
-
-#[cfg(not(feature = "std"))]
-pub mod str {
-    pub use cstr_core::CStr;
-    pub use cstr_core::CString;
+    pub use alloc::ffi::CString;
+    pub use core::ffi::CStr;
 }
 
 pub mod binding;

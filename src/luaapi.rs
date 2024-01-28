@@ -244,7 +244,7 @@ impl State {
     /// Maps to `lua_rawlen`.
     #[inline(always)]
     fn raw_len(&self, index: Index) -> size_t {
-        unsafe { lua_rawlen(self.state, index) }
+        unsafe { lua_rawlen(self.state, index) as _ }
     }
 
     /// Maps to `lua_tocfunction`.

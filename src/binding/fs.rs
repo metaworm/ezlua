@@ -166,16 +166,15 @@ fn lua_attribute<'a>(
     res.set("size", meta.len())?;
 
     let mut perms = [b'-'; 9];
-    let mode;
     #[cfg(windows)]
-    unsafe {
+    res.set("st_mode", unsafe {
         use alloc::vec::Vec;
         use std::os::windows::ffi::OsStrExt;
 
         let mut path = path.as_os_str().encode_wide().collect::<Vec<_>>();
         path.push(0);
         let mut st = std::mem::zeroed();
-        mode = if libc::wstat(path.as_ptr(), &mut st) == 0 {
+        let mode = if libc::wstat(path.as_ptr(), &mut st) == 0 {
             st.st_mode as i32
         } else {
             0
@@ -196,12 +195,13 @@ fn lua_attribute<'a>(
             perms[5] = b'x';
             perms[8] = b'x';
         }
-    };
+        mode
+    })?;
     #[cfg(unix)]
-    let st_mode = {
+    res.set("st_mode", {
         use std::os::unix::fs::PermissionsExt;
 
-        mode = meta.permissions().mode() as libc::mode_t;
+        let mode = meta.permissions().mode() as libc::mode_t;
         if mode & libc::S_IRUSR != 0 {
             perms[0] = b'r';
         }
@@ -229,8 +229,8 @@ fn lua_attribute<'a>(
         if mode & libc::S_IXOTH != 0 {
             perms[8] = b'x';
         }
-    };
-    res.set("st_mode", mode)?;
+        mode
+    })?;
     res.set("permissions", String::from_utf8_lossy(&perms[..]))?;
 
     if meta.file_type().is_dir() {
