@@ -7,7 +7,7 @@
     async_closure,
     box_into_inner
 )]
-#![cfg_attr(feature = "std", feature(thread_id_value, file_set_times,))]
+#![cfg_attr(feature = "std", feature(thread_id_value))]
 #![allow(dead_code, unused_variables)]
 
 extern crate alloc;

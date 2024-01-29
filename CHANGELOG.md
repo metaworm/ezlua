@@ -1,3 +1,15 @@
+## v0.5.0
+
+- Improve the support to no-std
+- Improve the implementation of `new_iter_map`
+- Added new marker `ScopeUserdata` `FromStr`
+- Added new macros `impl_fromlua_as_bitflags` `impl_tolua_as_bitflags` `bitflags_table` `enum_table`
+- Added bindings `OsStr`/`OsString`
+- Added bindings to `std::io` module
+- Added bindings to `chrono` crate
+- Change the `refs` parameter of `new_userdata_with_values`/`new_iter`/`new_iter_map` to any `FromLuaMulti`
+- Adapted macro syntax to rustc 1.76
+- More strictly type checking and bugfix
 
 ## v0.4.4
 

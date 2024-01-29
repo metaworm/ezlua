@@ -27,7 +27,7 @@ Ergonomic, efficient and Zero-cost rust bindings to Lua5.4
 
 ## Limits
 
-- Nightly rust compiler needed (1.70+)
+- Nightly rust compiler needed (1.76+)
 - Only support lua5.4 currently
 
 ## Examples
@@ -46,13 +46,14 @@ See [builtin bindings](https://github.com/metaworm/ezlua/tree/master/src/binding
 * `json`: enable the builtin bindings for [serde_json] crate
 * `regex`: enable the builtin bindings for [regex] crate
 * `tokio`: enable the builtin bindings for [tokio] crate
+* `chrono`: enable the builtin bindings for [tokio] crate
 
 ### Basic
 
 First, add ezlua to your dependencies in Cargo.toml
 ```toml
 [dependencies]
-ezlua = { version = '0.4' }
+ezlua = { version = '0.5' }
 ```
 
 Then, use ezlua in rust, the code framework like this
