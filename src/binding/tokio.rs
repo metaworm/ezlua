@@ -172,18 +172,15 @@ impl UserData for Sender<Reference> {
     const TYPE_NAME: &'static str = "TokioSender";
 
     fn methods(methods: UserdataRegistry<Self>) -> LuaResult<()> {
-        methods.set_async_closure(
-            "send",
-            async move |lua: &LuaState, this: &Self, val: ValRef| {
-                this.send(lua.registry().reference(val)?).await.lua_result()
-            },
-        )?;
+        methods.add_async_method("send", async move |lua, this, val: ValRef| {
+            this.send(lua.registry().reference(val)?).await.lua_result()
+        })?;
         methods.set_closure("try_send", |lua: &LuaState, this: &Self, val: ValRef| {
             LuaResult::Ok(this.try_send(lua.registry().reference(val)?).is_ok())
         })?;
-        methods.set_async_closure(
+        methods.add_async_method(
             "send_timeout",
-            async move |lua: &LuaState, this: &Self, val: ValRef, tm| {
+            async move |lua, this: &Self, (val, tm): (ValRef, _)| {
                 this.send_timeout(lua.registry().reference(val)?, tm)
                     .await
                     .lua_result()
@@ -212,9 +209,9 @@ impl UserData for Receiver<Reference> {
                 .map(|r| lua.registry().take_reference(r))
                 .transpose()
         })?;
-        methods.set_async_closure(
+        methods.set_async_function(
             "recv",
-            async move |lua: &LuaState, mut this: RwLockWriteGuard<Self>| {
+            async move |lua, mut this: RwLockWriteGuard<Self>| {
                 this.recv()
                     .await
                     .map(|r| lua.registry().take_reference(r))
@@ -269,9 +266,9 @@ impl UserData for UnboundedReceiver<Reference> {
                 .map(|r| lua.registry().take_reference(r))
                 .transpose()
         })?;
-        methods.set_async_closure(
+        methods.set_async_function(
             "recv",
-            async move |lua: &LuaState, mut this: RwLockWriteGuard<Self>| {
+            async move |lua, mut this: RwLockWriteGuard<Self>| {
                 this.recv()
                     .await
                     .map(|r| lua.registry().take_reference(r))
@@ -324,14 +321,11 @@ impl UserData for oneshot::Receiver<Reference> {
                         .and_then(|r| lua.registry().take_reference(r))
                 })?,
         )?;
-        methods.set_async_closure(
-            "recv",
-            async move |lua: &LuaState, OwnedUserdata::<Self>(this)| {
-                this.await
-                    .lua_result()
-                    .and_then(|r| lua.registry().take_reference(r))
-            },
-        )?;
+        methods.set_async_function("recv", async move |lua, OwnedUserdata::<Self>(this)| {
+            this.await
+                .lua_result()
+                .and_then(|r| lua.registry().take_reference(r))
+        })?;
 
         Ok(())
     }
