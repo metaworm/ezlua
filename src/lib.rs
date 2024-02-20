@@ -4,7 +4,6 @@
     macro_metavar_expr,
     const_type_name,
     associated_type_defaults,
-    async_closure,
     box_into_inner
 )]
 #![cfg_attr(feature = "std", feature(thread_id_value))]

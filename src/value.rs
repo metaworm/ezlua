@@ -5,7 +5,7 @@ use core::ffi::{c_char, c_void};
 use core::ops;
 
 use crate::{
-    convert::{Index, *},
+    convert::*,
     error::*,
     ffi::{self, lua_Integer, lua_Number, lua_tostring},
     luaapi::{Reference, Type, UnsafeLuaApi},

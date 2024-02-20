@@ -1,5 +1,3 @@
-use crate::coroutine::CoroutineWithRef;
-
 use super::*;
 
 use core::cell::RefCell;
