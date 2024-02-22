@@ -71,7 +71,7 @@ impl<K: ToLua, V: ToLua, I: IntoIterator<Item = (K, V)>> From<I> for IterMap<K, 
 
 impl<T: ToLua, I: Iterator<Item = T>> ToLua for IterVec<T, I> {
     fn to_lua<'a>(self, lua: &'a State) -> Result<ValRef<'a>> {
-        let res = lua.new_table_with_size(self.0.size_hint().1.unwrap_or(0) as _, 0)?;
+        let res = lua.new_array_table(self.0.size_hint().1.unwrap_or(0))?;
         let mut i = 1;
         for e in self.0 {
             res.raw_seti(i, e)?;
@@ -83,7 +83,7 @@ impl<T: ToLua, I: Iterator<Item = T>> ToLua for IterVec<T, I> {
 
 impl<K: ToLua, V: ToLua, I: Iterator<Item = (K, V)>> ToLua for IterMap<K, V, I> {
     fn to_lua<'a>(self, lua: &'a State) -> Result<ValRef<'a>> {
-        let res = lua.new_table_with_size(self.0.size_hint().1.unwrap_or(0) as _, 0)?;
+        let res = lua.new_table_with_size(0, self.0.size_hint().1.unwrap_or(0) as _)?;
         for e in self.0 {
             res.raw_set(e.0, e.1)?;
         }
@@ -326,7 +326,9 @@ where
 
     #[inline(always)]
     fn from_lua(lua: &'a State, val: ValRef<'a>) -> Result<FromStr<T>> {
-        T::from_str(&val.tostring()).lua_result().map(Self)
+        T::from_str(<&'a str as FromLua>::from_lua(lua, val)?)
+            .lua_result()
+            .map(Self)
     }
 }
 

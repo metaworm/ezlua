@@ -304,6 +304,14 @@ pub mod unsafe_impl {
             Ok(self.top_val().try_into().expect("table"))
         }
 
+        /// Create an array table
+        #[inline]
+        pub fn new_array_table(&self, narr: usize) -> Result<Table> {
+            let t = self.new_table_with_size(narr as _, 0)?;
+            t.set_metatable(self.array_metatable()?)?;
+            Ok(t)
+        }
+
         /// Create a lua table
         #[inline(always)]
         pub fn new_table(&self) -> Result<Table> {
