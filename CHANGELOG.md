@@ -1,3 +1,12 @@
+
+## v0.5.3
+
+- Fixed memory leak in some cases
+
+## v0.5.2
+
+- Added `LuaState::new_array_table`
+
 ## v0.5.0
 
 - Improve the support to no-std
