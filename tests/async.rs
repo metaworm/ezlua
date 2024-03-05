@@ -180,26 +180,27 @@ async fn async_error_balance() {
 #[tokio::test]
 async fn memory_leak() {
     let lua = Lua::with_open_libs();
-    lua.register_module("tokio", ezlua::binding::tokio::open, true)
-        .unwrap();
     lua.register_module("json", ezlua::binding::json::open, true)
         .unwrap();
-    lua.register_module("thread", ezlua::binding::std::thread::init, true)
+    lua.global()
+        .set_function("test", |lua, b: bool| {
+            if b {
+                lua.new_val(1).map(Some)
+            } else {
+                Ok(None)
+            }
+        })
         .unwrap();
 
     lua.load(
         r"
         local data = json.loadfile('./target/.rustc_info.json')
+        local b = true
         for i = 1, 10000000000000 do
-            tokio.spawn(function()
-                tokio.sleep(0)
-                json.dump(json.loadfile('./target/.rustc_info.json'))
-                json.dump(data)
-                tokio.sleep(0)
-            end):join()
-            tokio.sleep(0)
-            tokio.sleep(0)
-            collectgarbage()
+            -- json.dump(json.loadfile('./target/.rustc_info.json'))
+            json.dump(data)
+            pcall(json.load, '[{}, --]')
+            test(b) b = not b
             -- print(collectgarbage('count'))
         end
         ",

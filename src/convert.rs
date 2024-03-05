@@ -893,6 +893,11 @@ pub unsafe extern "C" fn closure_wrapper<'l, R: ToLuaMulti + 'l, F: Fn(&'l State
 
     // Confusingly, if I use one statement, i.e. `state.return_result(func(s)) as _`, the `state`
     // seems to have been copied twice, causing the free array to fail to be released during drop, resulting in a memory leak
-    let result = func(s);
-    state.return_result(result) as _
+    // let result = func(s);
+    // state.return_result(result) as _
+
+    (match func(s).push_multi(s) {
+        Ok(result) => result,
+        Err(err) => state.raise_error(err),
+    }) as _
 }

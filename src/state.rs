@@ -562,6 +562,7 @@ pub mod unsafe_impl {
             }
         }
 
+        #[deprecated = "it will cause memory leak when T = Result<Option<_>>, please embed this code to avoid"]
         #[inline(always)]
         pub(crate) unsafe fn return_result<T: ToLuaMulti>(self, t: T) -> usize {
             match t.push_multi(&self) {
