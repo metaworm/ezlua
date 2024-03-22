@@ -21,6 +21,8 @@ unsafe_send_sync = []
 async = ['unsafe_send_sync']
 compat = []
 tokio = ['async', 'dep:tokio']
+tokio_net = ['tokio', 'tokio/net']
+tokio_fs = ['tokio', 'tokio/fs']
 chrono = ['std', 'dep:chrono']
 build_dylib = ['vendored']
 

@@ -1,12 +1,11 @@
 use ::tokio::runtime::Handle;
 use alloc::sync::Arc;
-use tokio::{
-    net::{TcpListener, TcpStream},
-    sync::oneshot,
-    task::JoinHandle,
-};
+use tokio::{sync::oneshot, task::JoinHandle};
 
 use crate::{prelude::*, userdata::UserDataTrans};
+
+#[cfg(feature = "tokio_net")]
+pub mod net;
 
 pub struct TokioTask {
     join: JoinHandle<LuaResult<CoroutineWithRef>>,
@@ -120,8 +119,8 @@ pub fn open(lua: &LuaState) -> LuaResult<LuaTable> {
         m.set("sync", sync)?;
     }
 
-    m.set("TcpListner", lua.register_usertype::<TcpListener>()?)?;
-    m.set("TcpStream", lua.register_usertype::<TcpStream>()?)?;
+    #[cfg(feature = "tokio_net")]
+    m.set("net", net::init(lua)?)?;
 
     Ok(m)
 }
@@ -171,8 +170,15 @@ impl<'a, T: UserData<Trans = RwLock<T>>> FromLua<'a> for RwLockWriteGuard<'a, T>
 impl UserData for Sender<Reference> {
     const TYPE_NAME: &'static str = "TokioSender";
 
+    fn getter(fields: UserdataRegistry<Self>) -> LuaResult<()> {
+        fields.set_closure("is_closed", Self::is_closed)?;
+
+        Ok(())
+    }
+
     fn methods(methods: UserdataRegistry<Self>) -> LuaResult<()> {
         methods.add_async_method("send", |lua, this, val: ValRef| async move {
+            // TODO: fix memory leak
             this.send(lua.registry().reference(val)?).await.lua_result()
         })?;
         methods.set_closure("try_send", |lua: &LuaState, this: &Self, val: ValRef| {
@@ -228,6 +234,12 @@ impl UserData for Receiver<Reference> {
 
 impl UserData for UnboundedSender<Reference> {
     const TYPE_NAME: &'static str = "TokioUnboundedSender";
+
+    fn getter(fields: UserdataRegistry<Self>) -> LuaResult<()> {
+        fields.set_closure("is_closed", Self::is_closed)?;
+
+        Ok(())
+    }
 
     fn methods(methods: UserdataRegistry<Self>) -> LuaResult<()> {
         methods.set_closure("send", |lua: &LuaState, this: &Self, val: ValRef| {
@@ -351,33 +363,4 @@ pub fn wrap_receiver<'l, T: ToLuaMulti + Send + 'l + 'static>(
             }
         }
     })
-}
-
-impl UserData for TcpListener {
-    fn getter(fields: UserdataRegistry<Self>) -> LuaResult<()> {
-        fields.set_closure("local_addr", Self::local_addr)?;
-        Ok(())
-    }
-
-    fn methods(methods: UserdataRegistry<Self>) -> LuaResult<()> {
-        methods.set_async_closure("accept", Self::accept)?;
-        Ok(())
-    }
-
-    fn metatable(mt: UserdataRegistry<Self>) -> LuaResult<()> {
-        mt.set_async_closure("bind", Self::bind::<std::net::SocketAddr>)?;
-        Ok(())
-    }
-}
-
-impl UserData for TcpStream {
-    fn getter(fields: UserdataRegistry<Self>) -> LuaResult<()> {
-        fields.set_closure("local_addr", Self::local_addr)?;
-        fields.set_closure("peer_addr", Self::peer_addr)?;
-        Ok(())
-    }
-
-    fn methods(methods: UserdataRegistry<Self>) -> LuaResult<()> {
-        Ok(())
-    }
 }
