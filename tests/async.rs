@@ -19,8 +19,11 @@ async fn elua_async() {
 
     let g = lua.global();
     g.set_async_closure("echo_async", echo_async).unwrap();
-    g.set_async_closure("echo_async_multi", async move |vals: MultiValue| vals)
-        .unwrap();
+    g.set_async_function(
+        "echo_async_multi",
+        |_, vals: MultiValue| async move { vals },
+    )
+    .unwrap();
     g.set(
         "sleep_async",
         lua.async_closure(tokio::time::sleep).unwrap(),
@@ -151,7 +154,7 @@ async fn async_error_balance() {
 
     let co = Coroutine::empty(&lua);
     let async_error = co
-        .async_closure(async move |err: &str| {
+        .async_function(|_, err: &str| async move {
             tokio::time::sleep(Duration::from_millis(1)).await;
             Err::<(), _>(err).lua_result()
         })
