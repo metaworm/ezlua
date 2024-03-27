@@ -8,7 +8,9 @@ fn main() {
 #[cfg(not(feature = "vendored"))]
 fn main() {
     let family = std::env::var("CARGO_CFG_TARGET_FAMILY").unwrap();
-    if family == "windows" {
-        println!("cargo:rustc-link-lib=lua54.dll");
+    match family.as_str() {
+	"windows" => println!("cargo:rustc-link-lib=lua54.dll"),
+	"unix" => println!("cargo:rustc-link-lib=lua5.4"),
+	_ => ()
     }
 }
