@@ -1,5 +1,7 @@
 //! [serde](https://crates.io/crates/serde) utilities for lua
 
+use core::ops::Range;
+
 use crate::{
     error::{Error as LuaError, Result as LuaResult},
     ffi::lua_Integer,
@@ -153,7 +155,21 @@ impl<'a> ValRef<'a> {
 }
 
 struct LuaSerializer<'a>(&'a State);
-struct LuaTableSerializer<'a>(LuaTable<'a>, Option<ValRef<'a>>);
+struct LuaTableSerializer<'a> {
+    t: LuaTable<'a>,
+    k: Option<ValRef<'a>>,
+    // nil range in lua array part
+    nil: Range<i64>,
+}
+
+impl<'a> LuaTableSerializer<'a> {
+    fn restore_nil(&mut self) -> LuaResult<()> {
+        for i in self.nil.clone() {
+            self.t.raw_seti(i + 1, ())?;
+        }
+        Ok(())
+    }
+}
 
 impl<'a> SerializeSeq for LuaTableSerializer<'a> {
     type Ok = ValRef<'a>;
@@ -163,12 +179,32 @@ impl<'a> SerializeSeq for LuaTableSerializer<'a> {
     where
         T: Serialize,
     {
-        self.0
-            .raw_seti(self.0.raw_len() as lua_Integer + 1, SerdeValue(value))
+        use crate::luaapi::UnsafeLuaApi;
+
+        let state = self.t.state;
+        state.check_stack(2)?;
+        state.push(SerdeValue(value))?;
+
+        let top_is_nil = state.is_nil(-1);
+        if top_is_nil {
+            state.pop(1);
+            state.push(false)?;
+        }
+        state.raw_seti(self.t.index, self.nil.end + 1);
+        if top_is_nil {
+            self.nil.end += 1
+        } else {
+            self.restore_nil()?;
+            self.nil.end += 1;
+            self.nil.start = self.nil.end;
+        }
+
+        Ok(())
     }
 
-    fn end(self) -> Result<Self::Ok, Self::Error> {
-        Ok(self.0.into())
+    fn end(mut self) -> Result<Self::Ok, Self::Error> {
+        self.restore_nil()?;
+        Ok(self.t.into())
     }
 }
 
@@ -196,7 +232,7 @@ impl<'a> SerializeTupleStruct for LuaTableSerializer<'a> {
     where
         T: Serialize,
     {
-        self.1
+        self.k
             .as_ref()
             .and_then(ValRef::as_table)
             .ok_or("variant value not set")
@@ -227,13 +263,20 @@ impl<'a> SerializeTupleVariant for LuaTableSerializer<'a> {
 
 impl<'a> LuaTableSerializer<'a> {
     fn begin(s: &'a State, len: usize) -> LuaResult<Self> {
-        s.new_table_with_size(0, len as _)
-            .map(|val| Self(val, None))
+        s.new_table_with_size(0, len as _).map(|val| Self {
+            t: val,
+            k: None,
+            nil: 0..0,
+        })
     }
 
     fn begin_array(s: &'a State, len: usize) -> LuaResult<Self> {
         let t = s.new_array_table(len)?;
-        Ok(Self(t, None))
+        Ok(Self {
+            t,
+            k: None,
+            nil: 0..0,
+        })
     }
 }
 
@@ -249,7 +292,7 @@ impl<'a> SerializeStruct for LuaTableSerializer<'a> {
     where
         T: Serialize,
     {
-        self.0.raw_set(key, SerdeValue(value))
+        self.t.raw_set(key, SerdeValue(value))
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
@@ -265,7 +308,7 @@ impl<'a> SerializeMap for LuaTableSerializer<'a> {
     where
         T: Serialize,
     {
-        self.1.replace(self.0.state.new_val(SerdeValue(key))?);
+        self.k.replace(self.t.state.new_val(SerdeValue(key))?);
         Ok(())
     }
 
@@ -273,8 +316,8 @@ impl<'a> SerializeMap for LuaTableSerializer<'a> {
     where
         T: Serialize,
     {
-        self.0.raw_set(
-            self.1.take().ok_or("no key").lua_result()?,
+        self.t.raw_set(
+            self.k.take().ok_or("no key").lua_result()?,
             SerdeValue(value),
         )
     }
@@ -288,11 +331,11 @@ impl<'a> SerializeMap for LuaTableSerializer<'a> {
         K: Serialize,
         V: Serialize,
     {
-        self.0.raw_set(SerdeValue(key), SerdeValue(value))
+        self.t.raw_set(SerdeValue(key), SerdeValue(value))
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        Ok(self.0.into())
+        Ok(self.t.into())
     }
 }
 
@@ -308,7 +351,7 @@ impl<'a> SerializeStructVariant for LuaTableSerializer<'a> {
     where
         T: Serialize,
     {
-        self.1
+        self.k
             .as_ref()
             .and_then(ValRef::as_table)
             .ok_or("variant value not set")
@@ -447,12 +490,12 @@ impl<'a> Serializer for LuaSerializer<'a> {
         len: usize,
     ) -> Result<Self::SerializeTupleVariant, Self::Error> {
         let mut s = LuaTableSerializer::begin_array(self.0, len)?;
-        s.0.raw_set(-1, variant_index)?;
+        s.t.raw_set(-1, variant_index)?;
         // use [0] store variant name
-        s.0.raw_set(0, variant)?;
+        s.t.raw_set(0, variant)?;
         let t = self.0.new_table()?;
-        s.1.replace(t.0.clone());
-        s.0.raw_set(variant, t)?;
+        s.k.replace(t.0.clone());
+        s.t.raw_set(variant, t)?;
         Ok(s)
     }
 
@@ -464,12 +507,12 @@ impl<'a> Serializer for LuaSerializer<'a> {
         len: usize,
     ) -> Result<Self::SerializeStructVariant, Self::Error> {
         let mut s = LuaTableSerializer::begin(self.0, 1)?;
-        s.0.raw_set(-1, variant_index)?;
+        s.t.raw_set(-1, variant_index)?;
         // use [0] store variant name
-        s.0.raw_set(0, variant)?;
+        s.t.raw_set(0, variant)?;
         let t = self.0.new_table()?;
-        s.1.replace(t.0.clone());
-        s.0.raw_set(variant, t)?;
+        s.k.replace(t.0.clone());
+        s.t.raw_set(variant, t)?;
         Ok(s)
     }
 
