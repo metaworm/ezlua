@@ -28,7 +28,7 @@ pub mod str {
 }
 
 pub mod binding;
-#[cfg(feature = "compact")]
+#[cfg(feature = "compat")]
 pub mod compat;
 pub mod convert;
 pub mod error;

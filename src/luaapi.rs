@@ -826,9 +826,9 @@ impl State {
         unsafe { lua_upvaluejoin(self.state, fidx1, n1, fidx2, n2) }
     }
 
-    #[cfg(features = "std")]
+    #[cfg(feature = "std")]
     /// Maps to `lua_sethook`.
-    fn set_hook(&self, func: lua_Hook, mask: HookMask, count: c_int) {
+    fn set_hook(&self, func: Option<lua_Hook>, mask: HookMask, count: c_int) {
         unsafe { lua_sethook(self.state, func, mask.bits(), count) }
     }
 
@@ -837,7 +837,7 @@ impl State {
         unsafe { lua_gethook(self.state) }
     }
 
-    #[cfg(features = "std")]
+    #[cfg(feature = "std")]
     /// Maps to `lua_gethookmask`.
     fn get_hook_mask(&self) -> HookMask {
         let result = unsafe { lua_gethookmask(self.state) };
@@ -1417,18 +1417,18 @@ impl From<c_int> for Reference {
     }
 }
 
-#[cfg(features = "std")]
+#[cfg(feature = "std")]
 bitflags::bitflags! {
-    #[doc="Hook point masks for `lua_sethook`."]
-    flags HookMask: c_int {
-        #[doc="Called when the interpreter calls a function."]
-        const MASKCALL  = LUA_MASKCALL,
-        #[doc="Called when the interpreter returns from a function."]
-        const MASKRET   = LUA_MASKRET,
-        #[doc="Called when the interpreter is about to start the execution of a new line of code."]
-        const MASKLINE  = LUA_MASKLINE,
-        #[doc="Called after the interpreter executes every `count` instructions."]
-        const MASKCOUNT = LUA_MASKCOUNT
+    /// Hook point masks for `lua_sethook`.
+    pub struct HookMask: c_int {
+        /// Called when the interpreter calls a function.
+        const MASKCALL  = LUA_MASKCALL;
+        /// Called when the interpreter returns from a function.
+        const MASKRET   = LUA_MASKRET;
+        /// Called when the interpreter is about to start the execution of a new line of code.
+        const MASKLINE  = LUA_MASKLINE;
+        /// Called after the interpreter executes every `count` instructions.
+        const MASKCOUNT = LUA_MASKCOUNT;
     }
 }
 

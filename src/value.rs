@@ -364,9 +364,8 @@ impl<'a> ValRef<'a> {
     }
 
     pub fn call_close_and_remove_metatable(&self) -> Result<()> {
-        self.call_metamethod("__close", ArgRef(self.index))?;
-        self.remove_metatable();
-        Ok(())
+        self.call_metamethod("__close", ArgRef(self.index))
+            .map(|()| self.remove_metatable())
     }
 
     /// Tests whether two lua values are equal without metamethod triggers
