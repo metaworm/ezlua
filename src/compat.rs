@@ -23,7 +23,7 @@ impl LuaState {
         RET: ToLuaMulti + 'l,
         F: Fn(&'l LuaState, ARGS) -> LuaResult<RET> + 'static,
     >(
-        &self,
+        &'l self,
         func: F,
     ) -> LuaResult<LuaFunction> {
         self.new_function(func)
@@ -41,7 +41,7 @@ impl LuaState {
         RET: ToLuaMulti + 'l,
         F: Fn(&'l LuaState, ARGS) -> LuaResult<RET> + 'static,
     >(
-        &self,
+        &'l self,
         func: F,
     ) -> LuaResult<LuaFunction> {
         let func = RefCell::new(func);
