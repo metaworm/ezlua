@@ -62,6 +62,15 @@ impl DeErr for DesErr {
     }
 }
 
+impl DesErr {
+    pub fn context(self, info: impl Into<String>) -> Self {
+        match self {
+            Self::Message(msg) => Self::Message(format!("{}\n{msg}", info.into())),
+            _ => Self::Message(format!("{}\n{self:?}", info.into())),
+        }
+    }
+}
+
 impl State {
     /// convert a serializable value into a lua value
     #[inline(always)]
@@ -456,9 +465,9 @@ impl<'a> Serializer for LuaSerializer<'a> {
         variant: &'static str,
     ) -> Result<Self::Ok, Self::Error> {
         let t = self.0.new_table_with_size(0, 4)?;
-        t.raw_set(-1, variant_index)?;
+        // t.raw_set(-1, variant_index)?;
         // use [0] store variant name
-        t.raw_set(0, variant)?;
+        // t.raw_set(0, variant)?;
         // use false instead of nil for unit variant to prevent the variant key disappear when deserializing
         t.raw_set(variant, false)?;
         Ok(t.into())
@@ -475,9 +484,9 @@ impl<'a> Serializer for LuaSerializer<'a> {
         T: Serialize,
     {
         let t = self.0.new_table_with_size(0, 4)?;
-        t.raw_set(-1, variant_index)?;
+        // t.raw_set(-1, variant_index)?;
         // use [0] store variant name
-        t.raw_set(0, variant)?;
+        // t.raw_set(0, variant)?;
         t.raw_set(variant, SerdeValue(value))?;
         Ok(t.into())
     }
@@ -489,11 +498,11 @@ impl<'a> Serializer for LuaSerializer<'a> {
         variant: &'static str,
         len: usize,
     ) -> Result<Self::SerializeTupleVariant, Self::Error> {
-        let mut s = LuaTableSerializer::begin_array(self.0, len)?;
-        s.t.raw_set(-1, variant_index)?;
+        let mut s = LuaTableSerializer::begin(self.0, 3)?;
+        // s.t.raw_set(-1, variant_index)?;
         // use [0] store variant name
-        s.t.raw_set(0, variant)?;
-        let t = self.0.new_table()?;
+        // s.t.raw_set(0, variant)?;
+        let t = self.0.new_array_table(len)?;
         s.k.replace(t.0.clone());
         s.t.raw_set(variant, t)?;
         Ok(s)
@@ -507,9 +516,9 @@ impl<'a> Serializer for LuaSerializer<'a> {
         len: usize,
     ) -> Result<Self::SerializeStructVariant, Self::Error> {
         let mut s = LuaTableSerializer::begin(self.0, 1)?;
-        s.t.raw_set(-1, variant_index)?;
+        // s.t.raw_set(-1, variant_index)?;
         // use [0] store variant name
-        s.t.raw_set(0, variant)?;
+        // s.t.raw_set(0, variant)?;
         let t = self.0.new_table()?;
         s.k.replace(t.0.clone());
         s.t.raw_set(variant, t)?;
@@ -587,7 +596,8 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
                 }
             }
             Type::String => self.deserialize_str(visitor),
-            Type::Boolean => self.deserialize_bool(visitor),
+            Type::Boolean if self.to_bool() => self.deserialize_bool(visitor),
+            Type::Boolean => self.deserialize_unit(visitor),
             _ => {
                 if let Some(t) = self.as_table() {
                     let is_array = t
@@ -799,11 +809,11 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
     where
         V: Visitor<'de>,
     {
-        if self.type_of().is_none_or_nil() {
-            visitor.visit_unit()
-        } else {
-            Err(DesErr::ExpectedNull)
-        }
+        visitor.visit_unit()
+        // if self.type_of().is_none_or_nil() {
+        // } else {
+        //     Err(DesErr::ExpectedNull)
+        // }
     }
 
     /// Hint that the `Deserialize` type is expecting a unit struct with a
@@ -817,6 +827,7 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
         V: Visitor<'de>,
     {
         self.deserialize_unit(visitor)
+            .map_err(|err| err.context(format!("unit_struct {name}:")))
     }
 
     /// Hint that the `Deserialize` type is expecting a newtype struct with a
@@ -829,7 +840,9 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
     where
         V: Visitor<'de>,
     {
-        visitor.visit_newtype_struct(self)
+        visitor
+            .visit_newtype_struct(self)
+            .map_err(|err| err.context(format!("newtype_struct {name}:")))
     }
 
     /// Hint that the `Deserialize` type is expecting a sequence of values.
@@ -837,35 +850,6 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
     where
         V: Visitor<'de>,
     {
-        struct SeqDes<'a, 'b>(&'a LuaTable<'b>, usize, usize);
-
-        impl<'de> SeqAccess<'de> for SeqDes<'de, '_> {
-            type Error = DesErr;
-
-            #[inline]
-            fn size_hint(&self) -> Option<usize> {
-                Some(self.2)
-            }
-
-            fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
-            where
-                T: DeserializeSeed<'de>,
-            {
-                if self.1 > self.2 {
-                    return Ok(None);
-                }
-                let val = self
-                    .0
-                    .raw_geti(self.1 as lua_Integer)
-                    .map_err(DesErr::custom)?;
-                self.1 += 1;
-                // Safety: val is also referenced by the self table
-                let val: &'de ValRef = unsafe { core::mem::transmute(&val) };
-                let r = seed.deserialize(val)?;
-                Ok(Some(r))
-            }
-        }
-
         if let Some(t) = self.as_table() {
             let len = t.raw_len();
             visitor.visit_seq(SeqDes(t, 1, len))
@@ -880,7 +864,11 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
     where
         V: Visitor<'de>,
     {
-        self.deserialize_seq(visitor)
+        if let Some(t) = self.as_table() {
+            visitor.visit_seq(SeqDes(t, 1, len))
+        } else {
+            Err(DesErr::ExpectedArray)
+        }
     }
 
     /// Hint that the `Deserialize` type is expecting a tuple struct with a
@@ -895,6 +883,7 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
         V: Visitor<'de>,
     {
         self.deserialize_seq(visitor)
+            .map_err(|err| err.context(format!("tuple_struct {name}:")))
     }
 
     /// Hint that the `Deserialize` type is expecting a map of key-value pairs.
@@ -956,6 +945,7 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
         V: Visitor<'de>,
     {
         self.deserialize_map(visitor)
+            .map_err(|err| err.context(format!("struct {name}:")))
     }
 
     /// Hint that the `Deserialize` type is expecting an enum value with a
@@ -982,6 +972,7 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
             where
                 T: DeserializeSeed<'lua>,
             {
+                // std::println!("[variant] {}", self.variant);
                 let variant = self.variant.into_deserializer();
                 let variant_access = VariantDeser { value: self.value };
                 seed.deserialize(variant).map(|v| (v, variant_access))
@@ -1018,7 +1009,7 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
                 }
             }
 
-            fn tuple_variant<V>(self, _len: usize, visitor: V) -> Result<V::Value, Self::Error>
+            fn tuple_variant<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
             where
                 V: Visitor<'de>,
             {
@@ -1026,7 +1017,11 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
                     Some(value) => {
                         // Safety: val is also referenced by the self table
                         let val: &'de ValRef = unsafe { core::mem::transmute(&value) };
-                        serde::Deserializer::deserialize_seq(val, visitor)
+                        if let Some(t) = val.as_table() {
+                            visitor.visit_seq(SeqDes(t, 1, len))
+                        } else {
+                            Err(DesErr::ExpectedArray)
+                        }
                     }
                     None => Err(DesErr::custom(format!("tuple variant"))),
                 }
@@ -1051,23 +1046,25 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
             }
         }
 
-        visitor.visit_enum(if let Some(s) = self.to_str() {
-            EnumDeser {
-                variant: s.into(),
-                value: None,
-            }
-        } else if let Some((k, v)) = self
-            .as_table()
-            .and_then(|t| t.iter().ok()?.find(|(k, _)| k.type_of() == Type::String))
-            .and_then(|(k, v)| String::from_lua(k.state(), k).ok().map(|k| (k, v)))
-        {
-            EnumDeser {
-                variant: k,
-                value: Some(v),
-            }
-        } else {
-            return Err(DesErr::ExpectedEnum);
-        })
+        visitor
+            .visit_enum(if let Some(s) = self.to_str() {
+                EnumDeser {
+                    variant: s.into(),
+                    value: None,
+                }
+            } else if let Some((k, v)) = self
+                .as_table()
+                .and_then(|t| t.iter().ok()?.find(|(k, _)| k.type_of() == Type::String))
+                .and_then(|(k, v)| String::from_lua(k.state(), k).ok().map(|k| (k, v)))
+            {
+                EnumDeser {
+                    variant: k,
+                    value: Some(v),
+                }
+            } else {
+                return Err(DesErr::ExpectedEnum);
+            })
+            .map_err(|err| err.context(format!("enum {name}:")))
     }
 
     /// Hint that the `Deserialize` type is expecting the name of a struct
@@ -1088,6 +1085,35 @@ impl<'de> Deserializer<'de> for &'de ValRef<'_> {
         V: Visitor<'de>,
     {
         self.deserialize_any(visitor)
+    }
+}
+
+struct SeqDes<'a, 'b>(&'a LuaTable<'b>, usize, usize);
+
+impl<'de> SeqAccess<'de> for SeqDes<'de, '_> {
+    type Error = DesErr;
+
+    #[inline]
+    fn size_hint(&self) -> Option<usize> {
+        Some(self.2)
+    }
+
+    fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
+    where
+        T: DeserializeSeed<'de>,
+    {
+        if self.1 > self.2 {
+            return Ok(None);
+        }
+        let val = self
+            .0
+            .raw_geti(self.1 as lua_Integer)
+            .map_err(DesErr::custom)?;
+        self.1 += 1;
+        // Safety: val is also referenced by the self table
+        let val: &'de ValRef = unsafe { core::mem::transmute(&val) };
+        let r = seed.deserialize(val)?;
+        Ok(Some(r))
     }
 }
 
