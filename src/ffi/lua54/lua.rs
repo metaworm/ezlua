@@ -81,21 +81,28 @@ pub type lua_Unsigned = u64;
 pub type lua_KContext = isize;
 
 /// Type for native C functions that can be passed to Lua
-pub type CFunction = unsafe extern "C" fn(L: *mut lua_State) -> c_int;
+pub type CFunction = unsafe extern "C-unwind" fn(L: *mut lua_State) -> c_int;
 pub type lua_CFunction = Option<CFunction>;
 
 /// Type for continuation functions
 pub type lua_KFunction =
-    unsafe extern "C" fn(L: *mut lua_State, status: c_int, ctx: lua_KContext) -> c_int;
+    unsafe extern "C-unwind" fn(L: *mut lua_State, status: c_int, ctx: lua_KContext) -> c_int;
 
 // Type for functions that read/write blocks when loading/dumping Lua chunks
-pub type lua_Reader =
-    unsafe extern "C" fn(L: *mut lua_State, ud: *mut c_void, sz: *mut usize) -> *const c_char;
-pub type lua_Writer =
-    unsafe extern "C" fn(L: *mut lua_State, p: *const c_void, sz: usize, ud: *mut c_void) -> c_int;
+pub type lua_Reader = unsafe extern "C-unwind" fn(
+    L: *mut lua_State,
+    ud: *mut c_void,
+    sz: *mut usize,
+) -> *const c_char;
+pub type lua_Writer = unsafe extern "C-unwind" fn(
+    L: *mut lua_State,
+    p: *const c_void,
+    sz: usize,
+    ud: *mut c_void,
+) -> c_int;
 
 /// Type for memory-allocation functions
-pub type lua_Alloc = unsafe extern "C" fn(
+pub type lua_Alloc = unsafe extern "C-unwind" fn(
     ud: *mut c_void,
     ptr: *mut c_void,
     osize: usize,
@@ -104,9 +111,9 @@ pub type lua_Alloc = unsafe extern "C" fn(
 
 /// Type for warning functions
 pub type lua_WarnFunction =
-    unsafe extern "C" fn(ud: *mut c_void, msg: *const c_char, tocont: c_int);
+    unsafe extern "C-unwind" fn(ud: *mut c_void, msg: *const c_char, tocont: c_int);
 
-extern "C" {
+extern "C-unwind" {
     //
     // State manipulation
     //
@@ -175,7 +182,7 @@ pub const LUA_OPSHR: c_int = 11;
 pub const LUA_OPUNM: c_int = 12;
 pub const LUA_OPBNOT: c_int = 13;
 
-extern "C" {
+extern "C-unwind" {
     pub fn lua_arith(L: *mut lua_State, op: c_int);
 }
 
@@ -183,12 +190,12 @@ pub const LUA_OPEQ: c_int = 0;
 pub const LUA_OPLT: c_int = 1;
 pub const LUA_OPLE: c_int = 2;
 
-extern "C" {
+extern "C-unwind" {
     pub fn lua_rawequal(L: *mut lua_State, idx1: c_int, idx2: c_int) -> c_int;
     pub fn lua_compare(L: *mut lua_State, idx1: c_int, idx2: c_int, op: c_int) -> c_int;
 }
 
-extern "C" {
+extern "C-unwind" {
     //
     // Push functions (C -> stack)
     //
@@ -278,7 +285,7 @@ pub unsafe fn lua_pcall(L: *mut lua_State, n: c_int, r: c_int, f: c_int) -> c_in
     lua_pcallk(L, n, r, f, 0, None)
 }
 
-extern "C" {
+extern "C-unwind" {
     //
     // Coroutine functions
     //
@@ -306,7 +313,7 @@ pub unsafe fn lua_yield(L: *mut lua_State, n: c_int) -> c_int {
 //
 // Warning-related functions
 //
-extern "C" {
+extern "C-unwind" {
     pub fn lua_setwarnf(L: *mut lua_State, f: Option<lua_WarnFunction>, ud: *mut c_void);
     pub fn lua_warning(L: *mut lua_State, msg: *const c_char, tocont: c_int);
 }
@@ -326,11 +333,11 @@ pub const LUA_GCISRUNNING: c_int = 9;
 pub const LUA_GCGEN: c_int = 10;
 pub const LUA_GCINC: c_int = 11;
 
-extern "C" {
+extern "C-unwind" {
     pub fn lua_gc(L: *mut lua_State, what: c_int, ...) -> c_int;
 }
 
-extern "C" {
+extern "C-unwind" {
     //
     // Miscellaneous functions
     //
@@ -501,9 +508,9 @@ pub const LUA_MASKLINE: c_int = 1 << (LUA_HOOKLINE as usize);
 pub const LUA_MASKCOUNT: c_int = 1 << (LUA_HOOKCOUNT as usize);
 
 /// Type for functions to be called on debug events.
-pub type lua_Hook = unsafe extern "C" fn(L: *mut lua_State, ar: *mut lua_Debug);
+pub type lua_Hook = unsafe extern "C-unwind" fn(L: *mut lua_State, ar: *mut lua_Debug);
 
-extern "C" {
+extern "C-unwind" {
     pub fn lua_getstack(L: *mut lua_State, level: c_int, ar: *mut lua_Debug) -> c_int;
     pub fn lua_getinfo(L: *mut lua_State, what: *const c_char, ar: *mut lua_Debug) -> c_int;
     pub fn lua_getlocal(L: *mut lua_State, ar: *const lua_Debug, n: c_int) -> *const c_char;

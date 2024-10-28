@@ -417,7 +417,7 @@ pub mod unsafe_impl {
         /// if `kbytes` is 0, then this is the same as calling `gc_step`. Returns true if this step has
         /// finished a collection cycle.
         pub fn gc_step_kbytes(&self, kbytes: c_int) -> Result<bool> {
-            unsafe extern "C" fn protect(l: *mut lua_State) -> i32 {
+            unsafe extern "C-unwind" fn protect(l: *mut lua_State) -> i32 {
                 lua_pushboolean(l, lua_gc(l, LUA_GCSTEP, lua_tointeger(l, 1) as i32));
                 1
             }
@@ -637,7 +637,7 @@ pub mod unsafe_impl {
             self.error_string(format!("{e:?}"))
         }
 
-        pub unsafe extern "C" fn traceback_c(l: *mut lua_State) -> i32 {
+        pub unsafe extern "C-unwind" fn traceback_c(l: *mut lua_State) -> i32 {
             luaL_traceback(l, l, lua_tostring(l, 1), 1);
             1
         }

@@ -88,7 +88,7 @@ impl Table<'_> {
     }
 }
 
-unsafe extern "C" fn continue_func(
+unsafe extern "C-unwind" fn continue_func(
     l: *mut lua_State,
     status: c_int,
     ctx: ffi::lua_KContext,
@@ -160,7 +160,7 @@ impl State {
     // where
     //     F: FnOnce(&State, ThreadStatus) -> c_int,
     // {
-    //     unsafe extern "C" fn continue_func<F>(
+    //     unsafe extern "C-unwind" fn continue_func<F>(
     //         l: *mut lua_State,
     //         status: c_int,
     //         ctx: ffi::lua_KContext,
@@ -332,7 +332,7 @@ impl State {
     }
 }
 
-pub unsafe extern "C" fn async_closure_wrapper<
+pub unsafe extern "C-unwind" fn async_closure_wrapper<
     'l,
     R: ToLuaMulti + 'l,
     FUT: Future<Output = R> + Send + 'l,

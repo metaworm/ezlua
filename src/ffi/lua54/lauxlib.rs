@@ -20,7 +20,7 @@ pub struct luaL_Reg {
     pub func: lua_CFunction,
 }
 
-extern "C" {
+extern "C-unwind" {
     pub fn luaL_checkversion_(L: *mut lua_State, ver: lua_Number, sz: usize);
 
     pub fn luaL_getmetafield(L: *mut lua_State, obj: c_int, e: *const c_char) -> c_int;
@@ -66,7 +66,7 @@ extern "C" {
 pub const LUA_NOREF: c_int = -2;
 pub const LUA_REFNIL: c_int = -1;
 
-extern "C" {
+extern "C-unwind" {
     pub fn luaL_ref(L: *mut lua_State, t: c_int) -> c_int;
     pub fn luaL_unref(L: *mut lua_State, t: c_int, r#ref: c_int);
 
@@ -79,7 +79,7 @@ pub unsafe fn luaL_loadfile(L: *mut lua_State, f: *const c_char) -> c_int {
     luaL_loadfilex(L, f, ptr::null())
 }
 
-extern "C" {
+extern "C-unwind" {
     pub fn luaL_loadbufferx(
         L: *mut lua_State,
         buff: *const c_char,

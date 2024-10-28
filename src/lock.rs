@@ -20,7 +20,7 @@ pub fn get_extra<'a>(l: *mut lua_State) -> &'a mut Extra {
 }
 
 #[no_mangle]
-unsafe extern "C" fn ezlua_lock(l: *mut lua_State) {
+unsafe extern "C-unwind" fn ezlua_lock(l: *mut lua_State) {
     let extra: &'static mut Extra = get_extra(l);
     #[cfg(not(feature = "parking_lot"))]
     extra.guard.replace(extra.mutex.lock().expect("lualock"));
@@ -29,12 +29,12 @@ unsafe extern "C" fn ezlua_lock(l: *mut lua_State) {
 }
 
 #[no_mangle]
-unsafe extern "C" fn ezlua_unlock(l: *mut lua_State) {
+unsafe extern "C-unwind" fn ezlua_unlock(l: *mut lua_State) {
     get_extra(l).guard.take();
 }
 
 #[no_mangle]
-unsafe extern "C" fn ezlua_userstateopen(l: *mut lua_State) {
+unsafe extern "C-unwind" fn ezlua_userstateopen(l: *mut lua_State) {
     let extra = Box::new(Extra {
         mutex: Mutex::new(()),
         guard: None,
@@ -43,7 +43,7 @@ unsafe extern "C" fn ezlua_userstateopen(l: *mut lua_State) {
 }
 
 #[no_mangle]
-unsafe extern "C" fn ezlua_userstateclose(l: *mut lua_State) {
+unsafe extern "C-unwind" fn ezlua_userstateclose(l: *mut lua_State) {
     let e = get_extra(l);
     drop(Box::from_raw(e));
 }

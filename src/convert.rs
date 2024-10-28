@@ -186,7 +186,7 @@ impl ToLua for &ValRef<'_> {
     });
 }
 
-pub unsafe extern "C" fn __gc<T>(l: *mut lua_State) -> i32 {
+pub unsafe extern "C-unwind" fn __gc<T>(l: *mut lua_State) -> i32 {
     let s = State::from_raw_state(l);
     s.to_userdata_typed::<T>(1)
         .map(|p| core::ptr::drop_in_place(p));
@@ -877,7 +877,7 @@ pub fn function_wrapper<'l, A: 'l, R: ToLuaMulti + 'l, F: LuaMethod<'l, (), A, R
     to_wrapper(move |lua: &'l State| fun.call_method(lua))
 }
 
-pub unsafe extern "C" fn closure_wrapper<'l, R: ToLuaMulti + 'l, F: Fn(&'l State) -> R>(
+pub unsafe extern "C-unwind" fn closure_wrapper<'l, R: ToLuaMulti + 'l, F: Fn(&'l State) -> R>(
     l: *mut lua_State,
 ) -> i32 {
     let state = State::from_raw_state(l);

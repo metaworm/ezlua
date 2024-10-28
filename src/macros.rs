@@ -4,7 +4,7 @@
 macro_rules! lua_module {
     ($name:ident, $init:expr) => {
         #[no_mangle]
-        pub unsafe extern "C" fn $name(l: *mut $crate::ffi::lua_State) -> i32 {
+        pub unsafe extern "C-unwind" fn $name(l: *mut $crate::ffi::lua_State) -> i32 {
             $crate::convert::module_function_wrapper($init)(l)
         }
     };

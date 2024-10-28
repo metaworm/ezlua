@@ -214,7 +214,7 @@ impl<'a> ValRef<'a> {
     /// Get value associated to integer key, equivalent to `return self[i]` in lua
     pub fn geti(&self, i: impl Into<lua_Integer>) -> Result<ValRef<'a>> {
         if self.has_metatable() {
-            unsafe extern "C" fn protect_get(l: *mut ffi::lua_State) -> i32 {
+            unsafe extern "C-unwind" fn protect_get(l: *mut ffi::lua_State) -> i32 {
                 ffi::lua_geti(l, 1, ffi::lua_tointeger(l, 2));
                 1
             }
@@ -231,7 +231,7 @@ impl<'a> ValRef<'a> {
     /// Set value with integer key, equivalent to `self[i] = v` in lua
     pub fn seti<V: ToLua>(&self, i: impl Into<lua_Integer>, v: V) -> Result<()> {
         if self.has_metatable() {
-            unsafe extern "C" fn protect_set(l: *mut ffi::lua_State) -> i32 {
+            unsafe extern "C-unwind" fn protect_set(l: *mut ffi::lua_State) -> i32 {
                 ffi::lua_seti(l, 1, ffi::lua_tointeger(l, 2));
                 0
             }
@@ -250,7 +250,7 @@ impl<'a> ValRef<'a> {
     #[inline]
     pub fn len(&self) -> Result<ValRef<'a>> {
         if self.has_metatable() {
-            unsafe extern "C" fn protect(l: *mut ffi::lua_State) -> i32 {
+            unsafe extern "C-unwind" fn protect(l: *mut ffi::lua_State) -> i32 {
                 ffi::lua_len(l, 1);
                 0
             }
@@ -264,7 +264,7 @@ impl<'a> ValRef<'a> {
     /// Set value with any key, equivalent to `self[k] = v` in lua
     pub fn set<K: ToLua, V: ToLua>(&self, k: K, v: V) -> Result<()> {
         if self.has_metatable() {
-            unsafe extern "C" fn protect_set(l: *mut ffi::lua_State) -> i32 {
+            unsafe extern "C-unwind" fn protect_set(l: *mut ffi::lua_State) -> i32 {
                 ffi::lua_settable(l, 1);
                 0
             }
@@ -280,7 +280,7 @@ impl<'a> ValRef<'a> {
     /// Get value associated to key, equivalent to `return self[k]` in lua
     pub fn get<K: ToLua>(&self, key: K) -> Result<ValRef<'a>> {
         if self.has_metatable() {
-            unsafe extern "C" fn protect_get(l: *mut ffi::lua_State) -> i32 {
+            unsafe extern "C-unwind" fn protect_get(l: *mut ffi::lua_State) -> i32 {
                 ffi::lua_gettable(l, 1);
                 1
             }
@@ -877,7 +877,7 @@ impl<'a> LuaUserData<'a> {
 
 macro_rules! protect_airth {
     ($op:expr) => {{
-        unsafe extern "C" fn protect(l: *mut ffi::lua_State) -> i32 {
+        unsafe extern "C-unwind" fn protect(l: *mut ffi::lua_State) -> i32 {
             ffi::lua_arith(l, $op);
             1
         }
@@ -963,7 +963,7 @@ impl ValRef<'_> {
 
 macro_rules! protect_compare {
     ($op:expr) => {{
-        unsafe extern "C" fn protect(l: *mut ffi::lua_State) -> i32 {
+        unsafe extern "C-unwind" fn protect(l: *mut ffi::lua_State) -> i32 {
             ffi::lua_pushboolean(l, ffi::lua_compare(l, 1, 2, $op));
             1
         }

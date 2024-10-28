@@ -14,7 +14,7 @@ pub const LUA_MATHLIBNAME: &str = "math";
 pub const LUA_DBLIBNAME: &str = "debug";
 pub const LUA_LOADLIBNAME: &str = "package";
 
-extern "C" {
+extern "C-unwind" {
     pub fn luaopen_base(L: *mut lua_State) -> c_int;
     pub fn luaopen_coroutine(L: *mut lua_State) -> c_int;
     pub fn luaopen_table(L: *mut lua_State) -> c_int;

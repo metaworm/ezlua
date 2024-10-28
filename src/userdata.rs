@@ -59,8 +59,14 @@ pub trait UserDataTrans<T: UserData>: Sized {
 }
 
 impl<T: UserData> UserDataTrans<T> for T {
-    type Read<'a> = &'a Self where T: 'a;
-    type Write<'a> = &'a mut Self where T: 'a;
+    type Read<'a>
+        = &'a Self
+    where
+        T: 'a;
+    type Write<'a>
+        = &'a mut Self
+    where
+        T: 'a;
 
     const FROM_INNER: fn(T) -> Self = core::convert::identity;
     const INTO_INNER: fn(Self) -> T = core::convert::identity;
@@ -71,8 +77,14 @@ impl<T: UserData> UserDataTrans<T> for T {
 }
 
 impl<T: UserData> UserDataTrans<T> for RefCell<T> {
-    type Read<'a> = Ref<'a, T> where T: 'a;
-    type Write<'a> = RefMut<'a, T> where T: 'a;
+    type Read<'a>
+        = Ref<'a, T>
+    where
+        T: 'a;
+    type Write<'a>
+        = RefMut<'a, T>
+    where
+        T: 'a;
 
     const FROM_INNER: fn(T) -> Self = RefCell::new;
     const INTO_INNER: fn(Self) -> T = RefCell::into_inner;
@@ -124,8 +136,14 @@ impl<'a, T: UserData<Trans = RefCell<T>>> FromLua<'a> for RefMut<'a, T> {
 
 #[cfg(feature = "parking_lot")]
 impl<T: UserData> UserDataTrans<T> for parking_lot::RwLock<T> {
-    type Read<'a> = parking_lot::RwLockReadGuard<'a, T> where T: 'a;
-    type Write<'a> = parking_lot::RwLockWriteGuard<'a, T> where T: 'a;
+    type Read<'a>
+        = parking_lot::RwLockReadGuard<'a, T>
+    where
+        T: 'a;
+    type Write<'a>
+        = parking_lot::RwLockWriteGuard<'a, T>
+    where
+        T: 'a;
 
     const FROM_INNER: fn(T) -> Self = parking_lot::RwLock::new;
     const INTO_INNER: fn(Self) -> T = parking_lot::RwLock::into_inner;
@@ -186,8 +204,14 @@ impl<'a, T> Deref for MaybePtrRef<'a, T> {
 pub struct MaybePointer<T>(*const T, Option<Box<T>>);
 
 impl<T: UserData> UserDataTrans<T> for MaybePointer<T> {
-    type Read<'a> = MaybePtrRef<'a, T> where T: 'a;
-    type Write<'a> = () where T: 'a;
+    type Read<'a>
+        = MaybePtrRef<'a, T>
+    where
+        T: 'a;
+    type Write<'a>
+        = ()
+    where
+        T: 'a;
 
     const FROM_INNER: fn(T) -> Self = |udata| Self(core::ptr::null(), Some(Box::new(udata)));
     const INTO_INNER: fn(Self) -> T =
@@ -399,7 +423,7 @@ pub trait UserData: Sized {
 
     /* MetaMmethod implementation */
 
-    unsafe extern "C" fn __index(l: *mut lua_State) -> c_int {
+    unsafe extern "C-unwind" fn __index(l: *mut lua_State) -> c_int {
         use crate::luaapi::UnsafeLuaApi;
 
         let s = State::from_raw_state(l);
@@ -446,7 +470,7 @@ pub trait UserData: Sized {
         return 0;
     }
 
-    unsafe extern "C" fn __newindex(l: *mut lua_State) -> c_int {
+    unsafe extern "C-unwind" fn __newindex(l: *mut lua_State) -> c_int {
         use crate::luaapi::UnsafeLuaApi;
 
         let s = State::from_raw_state(l);
@@ -476,7 +500,7 @@ pub trait UserData: Sized {
         return 0;
     }
 
-    unsafe extern "C" fn __close(l: *mut lua_State) -> c_int {
+    unsafe extern "C-unwind" fn __close(l: *mut lua_State) -> c_int {
         let s = State::from_raw_state(l);
         let u = LuaUserData::try_from(s.val(1)).ok();
 
@@ -499,7 +523,7 @@ pub trait UserData: Sized {
     }
 }
 
-unsafe extern "C" fn __len(l: *mut lua_State) -> c_int {
+unsafe extern "C-unwind" fn __len(l: *mut lua_State) -> c_int {
     lua_pushinteger(l, lua_rawlen(l, 1) as _);
     1
 }

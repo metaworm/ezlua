@@ -1093,7 +1093,7 @@ impl State {
     #[inline]
     fn dump(&self, mut writer: impl FnMut(&[u8]), strip: bool) -> c_int {
         use core::mem::transmute;
-        unsafe extern "C" fn dump_wrapper(
+        unsafe extern "C-unwind" fn dump_wrapper(
             l: *mut lua_State,
             p: *const c_void,
             sz: usize,
