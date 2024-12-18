@@ -7,7 +7,13 @@
     box_into_inner
 )]
 #![cfg_attr(feature = "std", feature(thread_id_value))]
-#![allow(dead_code, unused_variables)]
+#![allow(
+    dead_code,
+    unused_variables,
+    elided_named_lifetimes,
+    unexpected_cfgs,
+    non_local_definitions
+)]
 
 extern crate alloc;
 #[cfg(feature = "std")]

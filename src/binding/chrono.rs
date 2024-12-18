@@ -117,10 +117,16 @@ impl UserData for NaiveDateTime {
     }
 
     fn methods(methods: UserdataRegistry<Self>) -> LuaResult<()> {
-        methods.set_closure("timestamp", Self::timestamp)?;
-        methods.set_closure("timestamp_millis", Self::timestamp_millis)?;
-        methods.set_closure("timestamp_micros", Self::timestamp_micros)?;
-        methods.set_closure("timestamp_nanos", Self::timestamp_nanos_opt)?;
+        methods.set_closure("timestamp", |this: &Self| this.and_utc().timestamp())?;
+        methods.set_closure("timestamp_millis", |this: &Self| {
+            this.and_utc().timestamp_millis()
+        })?;
+        methods.set_closure("timestamp_micros", |this: &Self| {
+            this.and_utc().timestamp_micros()
+        })?;
+        methods.set_closure("timestamp_nanos", |this: &Self| {
+            this.and_utc().timestamp_nanos_opt()
+        })?;
         methods.set_closure("time", Self::time)?;
         methods.set_closure("date", Self::date)?;
 

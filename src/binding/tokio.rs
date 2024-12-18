@@ -2,7 +2,10 @@ use ::tokio::runtime::Handle;
 use alloc::sync::Arc;
 use tokio::{sync::oneshot, task::JoinHandle};
 
-use crate::{prelude::*, userdata::UserDataTrans};
+use crate::{
+    prelude::*,
+    userdata::{init_wrapper, UserDataTrans},
+};
 
 #[cfg(feature = "tokio_net")]
 pub mod net;
@@ -33,8 +36,9 @@ impl UserData for TokioTask {
 }
 
 impl UserData for Handle {
+    #[inline(never)]
     fn metatable_key() -> MetatableKey {
-        Self::METATABLE_KEY
+        init_wrapper::<Self>
     }
 
     fn methods(methods: UserdataRegistry<Self>) -> LuaResult<()> {
@@ -128,8 +132,14 @@ pub fn open(lua: &LuaState) -> LuaResult<LuaTable> {
 use ::tokio::sync::{mpsc::*, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 impl<T: UserData> UserDataTrans<T> for RwLock<T> {
-    type Read<'a> = RwLockReadGuard<'a, T> where T: 'a;
-    type Write<'a> = RwLockWriteGuard<'a, T> where T: 'a;
+    type Read<'a>
+        = RwLockReadGuard<'a, T>
+    where
+        T: 'a;
+    type Write<'a>
+        = RwLockWriteGuard<'a, T>
+    where
+        T: 'a;
 
     const FROM_INNER: fn(T) -> Self = RwLock::new;
     const INTO_INNER: fn(Self) -> T = RwLock::into_inner;
