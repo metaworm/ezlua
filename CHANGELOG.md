@@ -1,4 +1,10 @@
 
+## v0.5.4
+
+- Fixed the problem when using serde to deserialize enum
+- Fixed some warnings
+- Use `extern "C-unwind"` instead of `extern "C"`
+
 ## v0.5.3
 
 - Fixed memory leak in some cases
